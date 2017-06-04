@@ -243,3 +243,216 @@ Node中，請求物件的param方法會自行轉換這所有參數。我建議�
     
 ## 開始烹調
 
+## 顯示內容
+
+呈現內容，通常會使用`res.render`，他會顯示視圖與版面配置，提供最大的價值。
+
+只想測試網頁，可能會使用`res.send`。
+
+或許你會使用`req.query`取得查詢字串值。
+
+用`req.session`取得期程值
+
+`req.cookie`/`req.signedCookies`取得cookie。
+
+- 範例1. 基本用法
+
+    ```
+    app.get('/about', function (req, res) {
+	    res.render('about');
+	});
+    ```
+
+- 範例2. 除了200之外的回應碼
+
+    ```
+    app.get('/error', function(req, res) {
+        res.status(500);
+        res.render('error');
+    });
+    // 或是單行方式
+    app.get('/error', function(req, res) {
+        res.status(500).render('error');
+    });
+    ```
+
+- 範例3. 傳遞內容之視圖，包括查詢字串、cookie及期程值
+
+    ```
+    app.get('/about', function (req, res) {
+	    res.render('about', {
+	        message: 'Welcome',
+	        style: req.query.style,
+	        userid: req.cookie.userid,
+	        username: req.session.username
+	    });
+	});
+    ```
+
+- 範例4. 顯示沒有版面配置的視圖
+
+    ```
+    app.get('/no-layout', function (req, res) {
+	    res.render('no-layout', {layout: null});
+	});
+    ```
+
+- 範例5. 呈現具有自訂版面配置的視圖
+
+    ```
+    // 這裡會使用版面配置檔案的視圖 views/layouts/custom.handlebars
+	app.get('/custom-layout', function (req, res) {
+	    res.render('custom-layout', {layout: 'custom'});
+	});
+    ```
+
+- 範例6. 顯示純文字輸出
+
+    ```
+    app.get('/test', function (req, res) {
+	    res.type('text/plain');
+	    res.send('this is a test');
+	});
+    ```
+
+- 範例7. 添加錯誤處理程式
+
+    ```
+    // 就算你不需要next函式，也必須將它加入，讓Express可以認出這是一個錯誤處理函式
+    app.use(function (err, req, res, next) {
+	    console.error(err.stack);
+	    res.status(500);
+	    res.render('500');
+	});
+    ```
+
+- 範例8. 添加一個404錯誤處理函式
+
+    ```
+    app.use(function (req, res) {
+	    res.status(404).render('not-found');
+	});
+    ```
+
+### 處理表單
+
+表單資訊通常會在req.body裡面(有時在req.query裡面)。你可使用req.xhr判斷該請求是否是AJAX請求或瀏覽器請求。
+
+- 範例9. 基本表單處理
+
+    ```
+    // 必須連結內文解析中介軟體
+	app.post('/process-contact', function (req, res) {
+	    console.log('Received contact from ' + req.body.name + ' <' + req.body.email + '>');
+	    // 存到資料庫
+	    res.redirect('303', '/thank-you');
+	});
+    ```
+
+- 範例10. 更強大的表單處理
+
+    ```
+    app.post('/process-contact', function (req, res) {
+	    console.log('Received contact from ' + req.body.name + ' <' + req.body.email + '>');
+	    try {
+	        // 存到資料庫...
+	
+	        return req.xhr ? res.render({success: true}) : res.redirect(303, '/thank-you');
+	    } catch (ex) {
+	        return res.xhr ? res.json({error: 'Database error.'}) : res.redirect(303, '/database-error');
+	    }
+	});
+    ```
+
+### 提供API
+
+提供API與處理表單很像，參數通常會在req.query裡面，但你也可以使用req.body。差異之處在於你通常會回傳JSON、XML、甚至純文字，而不是HTML，而且你通常會使用較不常用的HTTP方法，例如PUT、POST與DELETE。
+
+範例11與12使用下列“產品”陣列：
+
+```
+var tours = [
+    {id: 0, name: 'Hood River', price: 99.99},
+    {id: 1, name: 'Oregon Coast', price: 149.95}
+];
+```
+
+Top：endpoint這個字眼通常用來說明API之中的函式。
+
+- 範例11. 一個簡單的GET端點，只回傳JSON
+
+    ```
+    app.get('/api/tours', function (req, res) {
+	    res.json(tours);
+	});
+    ```
+
+- 範例12. 使用Express的res.format方法，根據用戶端的喜好設定來回應
+
+    ```
+    app.get('/api/tours', function (req, res) {
+	    var toursXml = '<?xml version="1.0"?><tours>' +
+	        tours.map(function (t) {
+	            return '<tour price="' + t.price +
+	                '" id="' + t.id + '">' + t.name + '</tour>';
+	        }).join('') + '</tours>';
+	    var toursText = tours.map(function (t) {
+	        return t.id + ': ' + t.name + ' (' + t.price + ')';
+	    }).join('\n');
+	    res.format({
+	        'application/json': function () {
+	            res.json(tours);
+	        },
+	        'application/xml': function () {
+	            res.type('application/xml');
+	            res.send(toursXml);
+	        },
+	        'text/xml': function () {
+	            res.type('text/xml');
+	            res.send(toursXml);
+	        },
+	        'text/plain': function () {
+	            res.type('text/plain');
+	            res.send(toursText);
+	        }
+	    });
+	});
+    ```
+
+範例13，PUT端點會更新產品並回傳JSON。參數是在查詢字串中傳遞(路由字串中的":id"告訴Express在req.params添加一個id特性)
+
+- 範例13. 更新用的PUT端點
+
+    ```
+    app.put('/api/tour/:id', function (req, res) {
+	    var p = tours.some(function (p) {
+	        return p.id === req.params.id;
+	    });
+	    if (p) {
+	        if (req.query.name) p.name = req.query.name;
+	        if (req.query.price) p.price = req.query.price;
+	        res.json({success: true});
+	    } else {
+	        res.json({error: 'No such tour exists.'});
+	    }
+	});
+    ```
+
+- 範例14. 刪除用的DEL端點
+
+    ```
+    app.del('/api/tour/:id', function (req, res) {
+	    var i;
+	    for (i = tours.length - 1; i >= 0; i--) {
+	        if (tours[i].id === req.params.id) {
+	            break;
+	        }
+	    }
+	    if (i >= 0) {
+	        tours.splice(i, 1);
+	        res.json({success: true});
+	    } else {
+	        res.json({error: 'No such tour exists.'});
+	    }
+	});
+    ```
