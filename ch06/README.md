@@ -4,7 +4,7 @@
 
 ## URL的各個部分
 
-https://www.bing.com/search?q=grunt&first=9
+http://localhost:3000/about?test=1#history
 
 | http:// | localhost | :3000  | /about | ?test=1  | #history |
 |---------|-----------|--------|--------|----------|----------|
