@@ -25,6 +25,7 @@ app.set('view engine', 'handlebars');
 app.set('port', process.env.PORT || 3000);
 
 app.use(express.static(__dirname + '/public'));
+app.use(require('body-parser')());
 
 app.use(function (req, res, next) {
     res.locals.showTests = app.get('env') !== 'production' && req.query.test === '1';
@@ -97,6 +98,19 @@ app.get('/data/nursery-rhyme', function (req, res) {
         adjective: 'bushy',
         noun: 'heck',
     });
+});
+app.get('/thank-you', function(req, res){
+    res.render('thank-you');
+});
+app.get('/newsletter', function (req, res) {
+    res.render('newsletter', {csrf: 'CSRF token goes here'});
+});
+app.post('/process', function (req, res) {
+    console.log('Form (from querystring): ' + req.query.form);
+    console.log('CSRF token (from hidden form field): ' + req.body._csrf);
+    console.log('Name (from visible from field): ' + req.body.name);
+    console.log('Email (from visible from field): ' + req.body.email);
+    res.redirect(303, '/thank-you');
 });
 
 // 404全部抓取處理程式(中介軟體)
