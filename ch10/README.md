@@ -169,5 +169,6 @@ app.use(require('./lib/tourRequiresWaiver'));
 更常見的是，你可匯出一個物件，裡面包含中介軟體特性。例如我們將所有的購物車驗證碼放入lib/cartValidation.js：
 
 ```
-
+module.exports = {
+}
 ```
