@@ -3,7 +3,7 @@
  */
 const nodemailer = require('nodemailer');
 
-const credentials = require('./credentials');
+const credentials = require('./credentials'), emailService = require('./lib/email')(credentials);
 
 var mailTransport = nodemailer.createTransport({
     service: 'Gmail',
@@ -36,12 +36,15 @@ var mailTransport = nodemailer.createTransport({
 //     });
 // }
 
-mailTransport.sendMail({
-    from: '"Meadowlark Travel" <info@meadowlarktravel.com>',
-    to: 'eden90267@gmail.com, "Eden Liu" <eden90267@yahoo.com.tw>, eden_90267@hotmail.com',
-    subject: 'Your Meadowlark Travel Tour',
-    html: '<h1>Meadowlark Travel</h1>\n<p>Thanks for book your trip with Meadowlark Travel. <b>We look forward to your visit!</b></p>',
-    generateTextFromHtml: true
-}, function (err) {
-    if (err) console.error('Unable to send email: ' + err);
-});
+// mailTransport.sendMail({
+//     from: '"Meadowlark Travel" <info@meadowlarktravel.com>',
+//     to: 'eden90267@gmail.com, "Eden Liu" <eden90267@yahoo.com.tw>, eden_90267@hotmail.com',
+//     subject: 'Your Meadowlark Travel Tour',
+//     html: '<h1>Meadowlark Travel</h1>\n<p>Thanks for book your trip with Meadowlark Travel. <b>We look forward to your visit!</b></p>',
+//     generateTextFromHtml: true
+// }, function (err) {
+//     if (err) console.error('Unable to send email: ' + err);
+// });
+
+
+emailService.send('eden90267@gmail.com', 'Hood River tour on sale today!', 'Get \'em white they\'re hot!');

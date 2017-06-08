@@ -2,9 +2,9 @@
  * Created by eden90267 on 2017/6/2.
  */
 var express = require('express'),
-    connect = require('connect'),
     formidable = require('formidable'),
-    jqupload = require('jquery-file-upload-middleware');
+    jqupload = require('jquery-file-upload-middleware'),
+    nodemailer = require('nodemailer');
 
 var fortune = require('./lib/fortune'),
     credentials = require('./credentials'),
@@ -204,6 +204,45 @@ app.post('/contest/vacation-photo/:year/:month', function (req, res) {
         console.log(files);
         res.redirect(303, '/thank-you');
     });
+});
+
+var mailTransport = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: credentials.gmail.user,
+        pass: credentials.gmail.password
+    }
+});
+app.post('/cart/checkout', function (req, res) {
+    var cart = req.session.cart;
+    if (!cart) next(new Error('Cart does not exist'));
+    var name = req.body.name || '', email = req.body.email || '';
+    // 輸入驗證
+    if (!email.match(VALID_EMAIL_REGEX)) {
+        return res.next(new Error('Invalid email address.'));
+    }
+    // 指定隨機的購物車ID，通常我們會在這裡使用資料庫ID
+    cart.number = Math.random().toString().replace(/^0\.0*/, '');
+    cart.billing = {
+        name: name,
+        email: email,
+    };
+    res.render('email/cart-thank-you', {
+        layout: null,
+        cart: cart
+    }, function (err, html) {
+        if (err) console.log('error in email template');
+        mailTransport.sendMail({
+            from: '"Meadowlark Travel": info@meadowlarktravel.com',
+            to: cart.billing.email,
+            subject: 'Thank you for Book your Trip with Meadowlark',
+            html: html,
+            generateTextFromHtml: true
+        }, function (err) {
+            if (err) console.log('Unable to send confirmation: ' + err.stack);
+        });
+    });
+    res.render('cart-thank-you', {cart: cart});
 });
 
 // 404全部抓取處理程式(中介軟體)
