@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Meadowlark Travel</title>
+    {{#if showTests}}
+        <link rel="stylesheet" href="/vendor/mocha.css">
+    {{/if}}
+    {{{_sections.head}}}
+    <link rel="stylesheet" href="/vendor/bootstrap/css/bootstrap.min.css">
+    <!--[if lt IE 9]>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/respond.js/1.4.2/respond.min.js"></script>
+    <![endif]-->
+    <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+<header><img src="/img/logo.png" alt="Meadowlark Travel Logo"></header>
+<div class="container">
+    {{#if flash}}
+        <div class="alert alert-dismissible alert-{{flash.type}}">
+            <button type="button" class="close"
+                    data-dismiss="alert" aria-hidden="true">&times;
+            </button>
+            <strong>{{flash.intro}}</strong> {{{flash.message}}}
+        </div>
+    {{/if}}
+
+    {{{body}}}
+
+    <hr>
+
+    <footer>
+        <p>&copy; Meadowlark Travel 2014</p>
+    </footer>
+</div> <!-- /container -->
+<script src="https://code.jquery.com/jquery.min.js"></script>
+{{{_sections.jquery}}}
+{{#if showTests}}
+    <div id="mocha"></div>
+    <script src="/vendor/mocha.js"></script>
+    <script src="/vendor/chai.js"></script>
+    <script>
+        mocha.ui('tdd');
+        var assert = chai.assert;
+    </script>
+    <script src="/qa/tests-global.js"></script>
+    {{#if pageTestScript}}
+        <script src="{{pageTestScript}}"></script>
+    {{/if}}
+    <script>mocha.run();</script>
+{{/if}}
+<script src="/vendor/bootstrap/js/bootstrap.min.js"></script>
+<script src="/js/main.js"></script>
+</body>
+</html>
