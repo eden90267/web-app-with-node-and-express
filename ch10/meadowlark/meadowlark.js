@@ -2,11 +2,13 @@
  * Created by eden90267 on 2017/6/2.
  */
 var express = require('express'),
+    connect = require('connect'),
     formidable = require('formidable'),
     jqupload = require('jquery-file-upload-middleware');
 
 var fortune = require('./lib/fortune'),
-    credentials = require('./credentials');
+    credentials = require('./credentials'),
+    cartValidation = require('./lib/cartValidation');
 
 var app = express();
 
@@ -32,7 +34,10 @@ app.use(require('body-parser')());
 app.use(require('cookie-parser')(credentials.cookieSecret));
 app.use(require('express-session')());
 
-app.use(require('./lib/tourRequiresWaiver'));
+
+// app.use(require('./lib/tourRequiresWaiver'));
+app.use(cartValidation.checkWaivers);
+app.use(cartValidation.checkGuestCounts);
 
 app.use(function (req, res, next) {
     // 如果有閃爍訊息，將它轉換至內容，接著移除它
