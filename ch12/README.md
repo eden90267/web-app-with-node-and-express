@@ -45,3 +45,23 @@ memory, and will not scale past a single process.
 ## 環境專用設定
 
 只改變執行環境還不夠，雖Express會在產品模式下的主控台顯示更多警告。同樣的，在產品模式下，視圖緩存預設情況下是啟用的。
+
+執行環境是一種工具，可讓你輕鬆地決定應用程式在不同環境下該有哪些行為。你應該要減少開發、測試與產品環境之間的差異。一些不可避免的是資料庫設定、日誌紀錄在不同環境的詳細程度。
+
+我們在應用程式中加入一些日誌紀錄。開發中，使用Morgan(npm install --save morgan)，它使用彩色的輸出。產品中，使用express-logger(npm install --save express-logger)，它支援日誌輪換(每24小時就會被複製，並開始新的日誌，來避免日誌檔案無限制地成長)。接著在日誌檔案中添加日誌支援:
+
+```
+// logging
+switch(app.get('env')) {
+    case 'development':
+        // 緊湊、彩色的開發日誌
+        app.use(require('morgan')('dev'));
+        break;
+    case 'production':
+        // 'express-logger'模組支援每日日誌切換
+        app.use(require('express-logger')({
+            path: __dirname + '/log/requests.log'
+        }));
+        break;
+}
+```

@@ -29,6 +29,20 @@ app.set('view engine', 'handlebars');
 // 可藉由設定環境值(PORT)來改寫連接埠
 app.set('port', process.env.PORT || 3000);
 
+// logging
+switch(app.get('env')) {
+    case 'development':
+        // 緊湊、彩色的開發日誌
+        app.use(require('morgan')('dev'));
+        break;
+    case 'production':
+        // 'express-logger'模組支援每日日誌切換
+        app.use(require('express-logger')({
+            path: __dirname + '/log/requests.log'
+        }));
+        break;
+}
+
 app.use(express.static(__dirname + '/public'));
 app.use(require('body-parser')());
 app.use(require('cookie-parser')(credentials.cookieSecret));
