@@ -1,7 +1,8 @@
 /**
  * Created by eden90267 on 2017/6/2.
  */
-var express = require('express'),
+var http = require('http'),
+    express = require('express'),
     formidable = require('formidable'),
     jqupload = require('jquery-file-upload-middleware'),
     nodemailer = require('nodemailer');
@@ -29,8 +30,57 @@ app.set('view engine', 'handlebars');
 // 可藉由設定環境值(PORT)來改寫連接埠
 app.set('port', process.env.PORT || 3000);
 
+app.use(function (req, res, next) {
+    var cluster = require('cluster');
+    if (cluster.isWorker) console.log('Worker %d received request', cluster.worker.id);
+    next();
+});
+
+app.use(function (req, res, next) {
+    // 為這個請求建立一個領域
+    var domain = require('domain').create();
+    // 在這個領域中處理錯誤
+    domain.on('error', function (err) {
+        console.error('DOMAIN ERROR CAUGHT\n', err.stack);
+        try {
+            // 在5秒內關機
+            setTimeout(function () {
+                console.error('Failsafe shutdown.');
+                process.exit(1);
+            }, 5000);
+
+            // 中斷與叢集的連線
+            var worker = require('cluster').worker;
+            if (worker) worker.disconnect();
+
+            // 停止取用新的請求
+            server.close();
+
+            try {
+                // 嘗試使用Express錯誤路由
+                next(err);
+            } catch (error) {
+                // 如果Express錯誤路由失敗，嘗試一般的Node回應
+                console.error('Express error mechanism failed.\n', error.stack);
+                res.statusCode = 500;
+                res.setHeader('Content-Type', 'text/plain');
+                res.end('Server error');
+            }
+        } catch (error) {
+            console.error('Unable to send 500 response.\n', error.stack);
+        }
+    });
+
+    // 將請求與回應物件加到領域
+    domain.add(req);
+    domain.add(res);
+
+    // 執行領域中剩餘的請求鏈
+    domain.run(next);
+});
+
 // logging
-switch(app.get('env')) {
+switch (app.get('env')) {
     case 'development':
         // 緊湊、彩色的開發日誌
         app.use(require('morgan')('dev'));
@@ -259,20 +309,41 @@ app.post('/cart/checkout', function (req, res) {
     res.render('cart-thank-you', {cart: cart});
 });
 
+app.get('/fail', function (req, res) {
+    throw new Error('Nope!');
+});
+
+app.get('/epic-fail', function (req, res) {
+    process.nextTick(function () {
+        throw new Error('Kaboom!');
+    });
+});
+
+
 // 404全部抓取處理程式(中介軟體)
 app.use(function (req, res) {
-    res.status(404);
-    res.render('404');
+    res.status(404).render('404');
 });
 
 // 500錯誤處理程式(中介軟體)
 app.use(function (err, req, res, next) {
     console.error(err.stack);
-    res.status(500);
-    res.render('500');
+    res.status(500).render('500');
 });
 
-app.listen(app.get('port'), function () {
-    console.log('Express started in ' + app.get('env') + ' mode on http://localhost:' + app.get('port') + ';' +
-        ' press Ctrl-C to terminate.');
-});
+var server;
+
+function startServer() {
+    server = http.createServer(app).listen(app.get('port'), function () {
+        console.log('Express started in ' + app.get('env') + ' mode on http://localhost:' + app.get('port') + ';' +
+            ' press Ctrl-C to terminate.');
+    });
+}
+
+if (require.main === module) {
+    // 應用程式直接執行，啟動app伺服器
+    startServer();
+} else {
+    // 應用程式透過“需求”被提升為模組：會出函式至建構伺服器
+    module.exports = startServer;
+}
