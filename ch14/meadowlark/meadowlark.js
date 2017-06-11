@@ -485,13 +485,13 @@ app.get('/cart/thank-you', function (req, res) {
 app.get('/email/cart/thank-you', function (req, res) {
     res.render('email/cart-thank-you', {cart: req.session.cart, layout: null});
 });
-app.post('/cart/checkout', function (req, res) {
+app.post('/cart/checkout', function (req, res, next) {
     var cart = req.session.cart;
-    if (!cart) next(new Error('Cart does not exist'));
+    if (!cart) return next(new Error('Cart does not exist'));
     var name = req.body.name || '', email = req.body.email || '';
     // 輸入驗證
     if (!email.match(VALID_EMAIL_REGEX)) {
-        return res.next(new Error('Invalid email address.'));
+        return next(new Error('Invalid email address.'));
     }
     // 指定隨機的購物車ID，通常我們會在這裡使用資料庫ID
     cart.number = Math.random().toString().replace(/^0\.0*/, '');
@@ -537,6 +537,17 @@ app.post('/notify-me-when-in-season', function (req, res) {
         });
 });
 
+var staff = {
+    mitch: {bio: 'Mitch is the man to have at your back in a bar fight'},
+    madeline: {bio: 'madeline is our Oregon expert.'},
+    walt: {bio: 'Walt is our Oregon Coast expert.'}
+};
+app.get('/staff/:name', function (req, res, next) {
+    var info = staff[req.params.name];
+    if (!info) return next();        // 最終會產生404失敗
+    res.render('staffer', info);
+});
+
 
 // 404全部抓取處理程式(中介軟體)
 app.use(function (req, res) {
@@ -544,7 +555,7 @@ app.use(function (req, res) {
 });
 
 // 500錯誤處理程式(中介軟體)
-app.use(function (err, req, res, next) {
+app.use(function (err, req, res) {
     console.error(err.stack);
     res.status(500).render('500');
 });

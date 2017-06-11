@@ -42,5 +42,156 @@
 Express的路由機制在預設情況下並未考慮子網域：app.get(/about)會處理*http://meadowlarktravel.com/about*、*http://www.meadoowlarktravel.com*與*http://admin.meadowlarktravel.com/about*的請求。如果你想要個別處理子網域，可使用一種稱為vhost的套件(代表virtual host，來自Apache機制，通常處理子網域使用)。首先，安裝套件(`npm install --save vhost`)，接著編輯你的應用程式檔案來建立子網域：
 
 ```
+// 建立“admin”子網域...
+// 這個應該要在你的所有其他路由之前出現
+var admin = express.Router();
+app.use(vhost('admin.*', admin));
+
+// 建立管理員路由，這些可在任何地方定義
+admin.get('/', function (req, res) {
+    res.render('admin/home');
+});
+admin.get('/users', function (req, res) {
+    res.render('admin/users');
+});
+```
+
+express.Router()基本上會建立一個Express路由的新實例。你可將這個實例當成你的原始實例(app)：你可以對app增加路由與中介軟體。但，在你將它將到app之前，它不會做任何事。我們透過vhost來將它加入，它會將那一個路由實例綁到那一個子網域。
+
+## 路由處理程式都是中介軟體
+
+基本路由：只要匹配一個給定的路徑。但app.get('/foo',...)實際**做什麼**事情？它只是一段專門的中介軟體，會被傳入一個next方法。我們來看一個更複雜的範例：
 
 ```
+app.get('/foo', function(req, res, next) {
+    if (Math.random() < 0.5) return next();
+    res.send('sometimes this');
+});
+
+app.get('/foo', function(req, res) {
+    res.send('and sometime that');
+})
+```
+
+你可針對一個app.get呼叫使用任何數量的處理程式。
+
+```
+app.get('/foo',
+        function(req, res, next){
+            if(Math.random() < 0.33) return next();
+            res.send('red');
+        },
+        function(req, res, next){
+            if(Math.random() < 0.5) return next();
+            res.send('green');
+        },
+        function(req, res) {
+            res.send('blue');
+        },
+);
+```
+
+它可讓你建立通用函式，可在你的所有路由中使用。例如，假設我們有一個機制可在某網頁上顯示特別優惠活動。特別優惠的變更很頻繁，而且它們不會在每頁顯示。我們可建立一個函式將特別優惠注入至res.locals特性：
+
+```
+function specials(req, res, next) {
+    res.locals.specials = getSpecialsFromDatabase();
+    next();
+}
+app.get('/page-with-specials', specials, function (req, res) {
+    res.render('page-with-specials');
+});
+```
+
+我們也可用這種方法實作一個授權機制。假如我們的使用者授權碼會設定一個名為req.session.authorized的期程變數。我們可以使用以下的程式來製作一個可重複使用的授權過濾器：
+
+```
+function authorize(req, res, next) {
+    if (req.session.authorized) return next();
+    res.render('not-authorized');
+}
+app.get('/secret', authorize, function (req, res) {
+    res.render('secret');
+});
+app.get('/sub-rosa', authorize, function (req, res) {
+    res.render('sub-rosa');
+});
+```
+
+## 路由路徑與正規表達式
+
+當你在路由裡面指定路徑時(像/foo)，它最後會被Express轉換成正規表達式。有一些正規表達式的特殊字元可以在路由路徑中使用：+、?、*、(與)。來看一些範例：
+
+假設你想要用同樣路徑來處理/user與/username URL：
+
+```
+app.get('/user(name)', function(req, res) {
+    res.render('user');
+});
+```
+
+khaaaaaaaan網頁，不希望讓使用者記得他有幾個A：
+
+```
+app.get('/khaa+n', function(req, res) {
+    res.render('khaaan');
+})
+```
+
+並非所有regex特殊字元在路由路徑都有意義，上面有列出的才能用。這點很重要，因為句點在regex特殊字元中通常代表“任何字元”，可在路由中使用，不需要轉義。
+
+最後，如果你真的需要在路由中讓正規表達式發揮威力：
+
+```
+app.get(/crazy|mad(ness)?|lunacy/,function(req, res){
+    res.render('madness');
+});
+```
+
+路由路徑使用regex特殊字元，目前沒找到理由，但知道有這功能是好事。
+
+## 路由參數
+
+它是個可讓路由的一部分變成可改變的參數的方式。
+
+```
+var staff = {
+    mitch: {bio: 'Mitch is the man to have at your back in a bar fight'},
+    madeline: {bio: 'madeline is our Oregon expert.'},
+    walt: {bio: 'Walt is our Oregon Coast expert.'}
+};
+app.get('/staff/:name', function (req, res, next) {
+    var info = staff[req.params.name];
+    if (!info) return next();        // 最終會產生404失敗
+    res.render('staffer', info);
+});
+```
+
+注意我們在路由中使用:param的方式。它會匹配所有字串(不含斜線)，並使用namer鍵將它放入req.params物件。這是之後會經常用到的功能。特別是建立REST API時。你可在路由中使用多個參數。例如，我們想以城市來區分工作人員：
+
+```
+var staff = {
+    portland: {
+        mitch: {bio: 'Mitch is the man to have at your back in a bar fight'},
+        madeline: {bio: 'madeline is our Oregon expert.'}
+    },
+    bend: {
+        {bio: 'Walt is our Oregon Coast expert.'}
+    },
+};
+
+app.get('/staff/:city/:name', function(req, res) {
+    var info = staff[req.params.city][req.params.name];
+    if (!info) return next();        // 最終會產生404失敗
+    res.render('staffer', info);
+});
+```
+
+## 組織路由
+
+推薦四條決定路由組成方式的指導原則：
+
+- **使用有名稱的函式處理路由**
+- **路由不應該是神秘的東西**
+- **路由組織必須是可擴充的**
+- **不要忽視視圖式自動路由處理程式**
