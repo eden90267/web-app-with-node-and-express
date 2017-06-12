@@ -192,6 +192,469 @@ app.get('/staff/:city/:name', function(req, res) {
 推薦四條決定路由組成方式的指導原則：
 
 - **使用有名稱的函式處理路由**
+
+    目前為止，我們已在行內編寫路由處理程式，方法是定義一個函式，在適當時機與地點處理路由。
+
 - **路由不應該是神秘的東西**
+
+頻譜的一端是簡單地將網站**所有**的路由放在一個檔案裡面，讓你知道它們的地方。大型網站，會將路由按照功能來區分。
+
 - **路由組織必須是可擴充的**
+
+    無論你選擇什麼方法，都必須確保你有成長的空間
+
 - **不要忽視視圖式自動路由處理程式**
+
+    如果你的網站含有許多靜態且具有固定URL的網頁：`app.get('/static/thing', function(req, res) { res.render('static/thing') });`。要減少這種沒必要的重複程式，請考慮使用視圖式自動路由處理程式。它可和自訂路由一起使用。
+    
+## 在模組內宣告路由
+
+組織路由第一步驟就是讓它們進入它們自己的模組。我們的方法是讓你的模組成為一個函式，它會回傳物件的陣列，物件裡面含有“方法”與“處理程式”特性。這樣你就可以在應用程式檔案裡面定義路由了。
+
+```
+var routes = require('./routes.js');
+
+routes.forEach(function(route) {
+    app[route.method](route.handler);
+})
+```
+
+這個方法自有其優點，而且**適合動態儲存路由**，例如在資料庫或JSON檔案。但是，如果你不需要那個功能，我建議將app實例傳入模組，並讓它添加路由，這就是我們將要在接下來四個範例中使用的方法。建立一個檔案，取名為routes.js，並將所有路由移到裡面去：
+
+```
+var fs = require('fs'),
+    formidable = require('formidable'),
+    jqupload = require('jquery-file-upload-middleware');
+
+var fortune = require('./lib/fortune'),
+    cartValidation = require('./lib/cartValidation'),
+    credentials = require('./credentials'),
+    emailService = require('./lib/email')(credentials),
+    Vacation = require('./models/vacation'),
+    VacationInSeasonListener = require('./models/vacationInSeasonListener');
+
+module.exports = function (app) {
+
+    app.get('/', function (req, res) {
+        res.render('home');
+    });
+    app.get('/about', function (req, res) {
+        res.render('about', {
+            fortune: fortune.getFortune(),
+            pageTestScript: '/qa/tests-about.js'
+        });
+    });
+    app.use('/upload', function (req, res, next) {
+        var now = Date.now();
+        jqupload.fileHandler({
+            uploadDir: function () {
+                return __dirname + '/public/uploads/' + now;
+            },
+            uploadUrl: function () {
+                return '/uploads/' + now;
+            },
+        })(req, res, next);
+    });
+    app.get('/tours/hood-river', function (req, res) {
+        res.render('tours/hood-river');
+    });
+    app.get('/tours/oregon-coast', function (req, res) {
+        res.render('tours/oregon-coast');
+    });
+    app.get('/tours/request-group-rate', function (req, res) {
+        res.render('tours/request-group-rate');
+    });
+    app.get('/jquerytest', function (req, res) {
+        res.render('jquerytest');
+    });
+    app.get('/nursery-rhyme', function (req, res) {
+        res.render('nursery-rhyme');
+    });
+    app.get('/data/nursery-rhyme', function (req, res) {
+        res.json({
+            animal: 'squirrel',
+            bodyPart: 'tail',
+            adjective: 'bushy',
+            noun: 'heck',
+        });
+    });
+    app.get('/thank-you', function (req, res) {
+        res.render('thank-you');
+    });
+    app.get('/newsletter', function (req, res) {
+        res.render('newsletter', {csrf: 'CSRF token goes here'});
+    });
+// for now, we're mocking NewsletterSignup:
+    function NewsletterSignup() {
+    }
+
+    NewsletterSignup.prototype.save = function (cb) {
+        cb();
+    };
+    var VALID_EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+    app.post('/newsletter', function (req, res) {
+        var name = req.body.name || '',
+            email = req.body.email || '';
+        // 輸入驗證
+        if (!email.match(VALID_EMAIL_REGEX)) {
+            if (req.xhr) return res.json({error: 'Invalid name email address'});
+            req.session.flash = {
+                type: 'danger',
+                intro: 'validation error!',
+                message: 'The email address you entered was not valid.',
+            };
+            return res.redirect(303, '/newsletter/archive');
+        }
+        new NewsletterSignup({name: name, email: email}).save(function (err) {
+            if (err) {
+                if (req.xhr) return res.json({error: 'Database error.'});
+                req.session.flash = {
+                    type: 'danger',
+                    intro: 'Database error!',
+                    message: 'There was a database error; please try again later.',
+                };
+                return res.redirect(303, '/newsletter/archive');
+            }
+            if (req.xhr) return res.json({success: true});
+            req.session.flash = {
+                type: 'success',
+                intro: 'Thank you!',
+                message: 'You have now been signed up for the newsletter.',
+            };
+            return res.redirect(303, '/newsletter/archive');
+        });
+    });
+    app.get('/newsletter/archive', function (req, res) {
+        res.render('newsletter/archive');
+    });
+    app.post('/process', function (req, res) {
+        if (req.xhr || req.accepts('json,html') === 'json') {
+            // 如果有錯誤的話，我們會傳送{error:'error description'}
+            res.send({success: true});
+        } else {
+            // 如果有錯誤的話，我們會重新導向一個錯誤網頁
+            res.redirect(303, '/thank-you');
+        }
+    });
+    app.get('/contest/vacation-photo', function (req, res) {
+        var now = new Date();
+        res.render('contest/vacation-photo', {
+            year: now.getFullYear(),
+            month: now.getMonth()
+        });
+    });
+
+    var dataDir = __dirname + '/data';
+    var vacationPhotoDir = dataDir + '/vacation-photo';
+    fs.existsSync(dataDir) || fs.mkdirSync(dataDir);
+    fs.existsSync(vacationPhotoDir) || fs.mkdirSync(vacationPhotoDir);
+
+    function saveContestEntry(contestName, email, year, month, photoPath) {
+        // 待辦...稍後加入
+    }
+
+    app.post('/contest/vacation-photo/:year/:month', function (req, res) {
+        var form = new formidable.IncomingForm();
+        form.parse(req, function (err, fields, files) {
+            if (err) return res.redirect(303, '/error');
+            if (err) {
+                res.session.flash = {
+                    type: 'danger',
+                    intro: 'Oops!',
+                    message: 'There was an error processing your submission. Please try again.'
+                };
+                return res.redirect(303, '/contest/vacation-photo');
+            }
+            var photo = files.photo;
+            var dir = vacationPhotoDir + '/' + Date.now();
+            var path = dir + '/' + photo.name;
+            fs.mkdirSync(dir);
+            fs.renameSync(photo.path, dir + '/' + photo.name);
+            saveContestEntry('vacation-photo', fields.email, req.params.year, req.params.month, path);
+            req.session.flash = {
+                type: 'success',
+                intro: 'Good luck',
+                message: 'You have been entered into the contest.'
+            };
+            return res.redirect(303, '/contest/vacation-photo/entries');
+        });
+    });
+
+    app.get('/fail', function (req, res) {
+        throw new Error('Nope!');
+    });
+    app.get('/epic-fail', function (req, res) {
+        process.nextTick(function () {
+            throw new Error('Kaboom!');
+        });
+    });
+
+    app.get('/set-currency/:currency', function (req, res) {
+        req.session.currency = req.params.currency;
+        return res.redirect(303, '/vacations');
+    });
+
+    function convertFromUSD(value, currency) {
+        switch (currency) {
+            case 'USD':
+                return value * 1;
+            case 'GBP':
+                return value * 0.6;
+            case 'BTC':
+                return value * 0.0023707918444761;
+            default:
+                return NaN;
+        }
+    }
+
+    app.get('/vacations', function (req, res) {
+        Vacation.find({available: true}, function (err, vacations) {
+            var currency = req.session.currency || 'USD';
+            var context = {
+                currency: currency,
+                vacations: vacations.map(function (vacation) {
+                    return {
+                        sku: vacation.sku,
+                        name: vacation.name,
+                        description: vacation.description,
+                        inSeason: vacation.inSeason,
+                        price: convertFromUSD(vacation.priceInCents / 100, currency),
+                        qty: vacation.qty,
+                    };
+                })
+            };
+            switch (currency) {
+                case 'USD':
+                    context.currencyUSD = 'selected';
+                    break;
+                case 'GBP':
+                    context.currencyGBP = 'selected';
+                    break;
+                case 'BTC':
+                    context.currencyBTC = 'selected';
+                    break;
+            }
+            res.render('vacations', context);
+        });
+    });
+
+// app.use(require('./lib/tourRequiresWaiver'));
+    app.use(cartValidation.checkWaivers);
+    app.use(cartValidation.checkGuestCounts);
+
+    app.get('/cart/add', function (req, res, next) {
+        var cart = req.session.cart || (req.session.cart = {items: []});
+        Vacation.findOne({sku: req.query.sku}, function (err, vacation) {
+            if (err) return next(err);
+            if (!vacation) return next(new Error('Unknown vacation SKU: ' + req.query.sku));
+            cart.items.push({
+                vacation: vacation,
+                guests: req.body.guests || 1,
+            });
+            res.redirect(303, '/cart');
+        });
+    });
+    app.get('/cart', function (req, res, next) {
+        var cart = req.session.cart;
+        if (!cart) next();
+        res.render('cart', {cart: cart});
+    });
+    app.get('/cart/checkout', function (req, res, next) {
+        var cart = req.session.cart;
+        if (!cart) next();
+        res.render('cart-checkout');
+    });
+    app.get('/cart/thank-you', function (req, res) {
+        res.render('cart-thank-you', {cart: req.session.cart});
+    });
+    app.get('/email/cart/thank-you', function (req, res) {
+        res.render('email/cart-thank-you', {cart: req.session.cart, layout: null});
+    });
+    app.post('/cart/checkout', function (req, res, next) {
+        var cart = req.session.cart;
+        if (!cart) return next(new Error('Cart does not exist'));
+        var name = req.body.name || '', email = req.body.email || '';
+        // 輸入驗證
+        if (!email.match(VALID_EMAIL_REGEX)) {
+            return next(new Error('Invalid email address.'));
+        }
+        // 指定隨機的購物車ID，通常我們會在這裡使用資料庫ID
+        cart.number = Math.random().toString().replace(/^0\.0*/, '');
+        cart.billing = {
+            name: name,
+            email: email,
+        };
+        res.render('email/cart-thank-you', {
+            layout: null,
+            cart: cart
+        }, function (err, html) {
+            if (err) console.log('error in email template');
+            emailService.send(cart.billing.email,
+                'Thank you for booking your trip with Meadowlark Travel!',
+                html);
+        });
+        res.render('cart-thank-you', {cart: cart});
+    });
+    app.get('/notify-me-when-in-season', function (req, res) {
+        res.render('notify-me-when-in-season', {sku: req.query.sku});
+    });
+    app.post('/notify-me-when-in-season', function (req, res) {
+        VacationInSeasonListener.update(
+            {email: req.body.email},
+            {$push: {skus: req.body.sku}},
+            {upsert: true},
+            function (err) {
+                if (err) {
+                    console.error(err.stack);
+                    req.session.flash = {
+                        type: 'danger',
+                        intro: 'Oops!',
+                        message: 'There was an error processing your request.',
+                    };
+                    return res.redirect(303, '/vacations');
+                }
+                req.session.flash = {
+                    type: 'success',
+                    intro: 'Thank you',
+                    message: 'You will be notified when this vacation is in season.'
+                };
+                return res.redirect(303, '/vacations');
+            });
+    });
+
+    var staff = {
+        mitch: {bio: 'Mitch is the man to have at your back in a bar fight'},
+        madeline: {bio: 'madeline is our Oregon expert.'},
+        walt: {bio: 'Walt is our Oregon Coast expert.'}
+    };
+    app.get('/staff/:name', function (req, res, next) {
+        var info = staff[req.params.name];
+        if (!info) return next();        // 最終會產生404失敗
+        res.render('staffer', info);
+    });
+};
+```
+
+會有些匯入動作，但是先停住，接著就會將處理程式移到它們自己的模組。
+
+路由連結進去meadowlark.js：
+
+```
+require('./routes')(app);
+```
+
+## 以邏輯的方式將處理程式群組化
+
+為了滿足第一個指導原則(使用有名稱的函式處理路由)。將有關聯的功能放在一起。*handlers/main.js*、*handlers/vacations.js*等等。
+
+*handlers/main.js*：
+
+```
+/**
+ * Created by eden90267 on 2017/6/12.
+ */
+var fortune = require("../lib/fortune.js");
+
+exports.home = function (req, res) {
+    res.render('home');
+};
+exports.about = function (req, res) {
+    res.render('about', {
+        fortune: fortune.getFortune(),
+        pageTestScript: '/qa/tests-about.js'
+    });
+};
+exports.genericThankYou = function (req, res) {
+    res.render('thank-you');
+};
+exports.newsletter = function (req, res) {
+    res.render('newsletter', {csrf: 'CSRF token goes here'});
+};
+// for now, we're mocking NewsletterSignup:
+function NewsletterSignup() {
+}
+
+NewsletterSignup.prototype.save = function (cb) {
+    cb();
+};
+var VALID_EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+exports.newsletterProcessPost = function (req, res) {
+    var name = req.body.name || '',
+        email = req.body.email || '';
+    // 輸入驗證
+    if (!email.match(VALID_EMAIL_REGEX)) {
+        if (req.xhr) return res.json({error: 'Invalid name email address'});
+        req.session.flash = {
+            type: 'danger',
+            intro: 'validation error!',
+            message: 'The email address you entered was not valid.',
+        };
+        return res.redirect(303, '/newsletter/archive');
+    }
+    new NewsletterSignup({name: name, email: email}).save(function (err) {
+        if (err) {
+            if (req.xhr) return res.json({error: 'Database error.'});
+            req.session.flash = {
+                type: 'danger',
+                intro: 'Database error!',
+                message: 'There was a database error; please try again later.',
+            };
+            return res.redirect(303, '/newsletter/archive');
+        }
+        if (req.xhr) return res.json({success: true});
+        req.session.flash = {
+            type: 'success',
+            intro: 'Thank you!',
+            message: 'You have now been signed up for the newsletter.',
+        };
+        return res.redirect(303, '/newsletter/archive');
+    });
+};
+exports.newsletterArchive = function (req, res) {
+    res.render('newsletter/archive');
+};
+```
+
+修改routes.js，來使用它：
+
+```
+var main = require('./handlers/main');
+
+module.exports = function (app) {
+
+    app.get('/', main.home);
+    app.get('/about', main.about);
+    // ...
+};
+```
+
+這可滿足我們的所有指導原則。/routes.js非常簡單明瞭。你一眼就可以看到網站裡面有什麼路由，以及會在哪裡處理它們。將相關功能放在一個群組，幾個檔案都可以。如果routes.js過於沈重，可以再次使用同樣技術，將app傳到其他會一次註冊更多路由的模組。
+
+## 自動轉譯視圖
+
+在404處理程式前，添加下列的中介軟體：
+
+```
+var autoViews = {};
+var fs = require('fs');
+
+app.use(function (req, res, next) {
+    var path = req.path.toLowerCase();
+    // 查看快取，如果它在那裡，轉譯視圖
+    if (autoViews[path]) return res.render(autoViews[path]);
+    // 如果它沒有在快取，
+    // 查看是否有一個匹配的.handlebars檔
+    if (fs.existsSync(__dirname + '/views' + path + '.handlebars')) {
+        autoViews[path] = path.replace('/^\//', '');
+        return res.render(autoViews[path]);
+    }
+    // 沒有發現視圖，傳至404處理程式
+    next();
+});
+```
+
+正規的路由會規避這種機制，它的優先權會比較高。
+
+## 其他的路由組織方法
+
+路由組織最受歡迎的兩種方法是：**命名空間路由**與**資源路由**。如果有許多路由使用同樣開頭，命名空間路由很適合(例如/vacations)。有一種**express-namespace**的Node模組可以讓你輕鬆地使用這種方法。資源路由會根據物件中的方法自動添加路由。如果你的網站邏輯是很自然的物件導向，就很適合使用。**express-resource**套件示範如何時做此種類型的路由組織。

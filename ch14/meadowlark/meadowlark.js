@@ -2,20 +2,13 @@
  * Created by eden90267 on 2017/6/2.
  */
 var http = require('http'),
-    fs = require('fs'),
     express = require('express'),
-    formidable = require('formidable'),
-    jqupload = require('jquery-file-upload-middleware'),
-    nodemailer = require('nodemailer'),
     mongoose = require('mongoose'),
-    vhost = require('vhost');
+    vhost = require('vhost'),
+    jqupload = require('jquery-file-upload-middleware') ;
 
-var fortune = require('./lib/fortune'),
-    credentials = require('./credentials'),
-    cartValidation = require('./lib/cartValidation'),
-    emailService = require('./lib/email')(credentials),
-    Vacation = require('./models/vacation'),
-    VacationInSeasonListener = require('./models/vacationInSeasonListener');
+var credentials = require('./credentials'),
+    Vacation = require('./models/vacation');
 
 var app = express();
 
@@ -251,15 +244,6 @@ admin.get('/users', function (req, res) {
     res.render('admin/users');
 });
 
-app.get('/', function (req, res) {
-    res.render('home');
-});
-app.get('/about', function (req, res) {
-    res.render('about', {
-        fortune: fortune.getFortune(),
-        pageTestScript: '/qa/tests-about.js'
-    });
-});
 app.use('/upload', function (req, res, next) {
     var now = Date.now();
     jqupload.fileHandler({
@@ -271,281 +255,25 @@ app.use('/upload', function (req, res, next) {
         },
     })(req, res, next);
 });
-app.get('/tours/hood-river', function (req, res) {
-    res.render('tours/hood-river');
-});
-app.get('/tours/oregon-coast', function (req, res) {
-    res.render('tours/oregon-coast');
-});
-app.get('/tours/request-group-rate', function (req, res) {
-    res.render('tours/request-group-rate');
-});
-app.get('/jquerytest', function (req, res) {
-    res.render('jquerytest');
-});
-app.get('/nursery-rhyme', function (req, res) {
-    res.render('nursery-rhyme');
-});
-app.get('/data/nursery-rhyme', function (req, res) {
-    res.json({
-        animal: 'squirrel',
-        bodyPart: 'tail',
-        adjective: 'bushy',
-        noun: 'heck',
-    });
-});
-app.get('/thank-you', function (req, res) {
-    res.render('thank-you');
-});
-app.get('/newsletter', function (req, res) {
-    res.render('newsletter', {csrf: 'CSRF token goes here'});
-});
-// for now, we're mocking NewsletterSignup:
-function NewsletterSignup() {
-}
-NewsletterSignup.prototype.save = function (cb) {
-    cb();
-};
-var VALID_EMAIL_REGEX = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
-app.post('/newsletter', function (req, res) {
-    var name = req.body.name || '',
-        email = req.body.email || '';
-    // 輸入驗證
-    if (!email.match(VALID_EMAIL_REGEX)) {
-        if (req.xhr) return res.json({error: 'Invalid name email address'});
-        req.session.flash = {
-            type: 'danger',
-            intro: 'validation error!',
-            message: 'The email address you entered was not valid.',
-        };
-        return res.redirect(303, '/newsletter/archive');
+
+// add routes
+require('./routes')(app);
+
+var autoViews = {};
+var fs = require('fs');
+
+app.use(function (req, res, next) {
+    var path = req.path.toLowerCase();
+    // 查看快取，如果它在那裡，轉譯視圖
+    if (autoViews[path]) return res.render(autoViews[path]);
+    // 如果它沒有在快取，
+    // 查看是否有一個匹配的.handlebars檔
+    if (fs.existsSync(__dirname + '/views' + path + '.handlebars')) {
+        autoViews[path] = path.replace(/^\//, '');
+        return res.render(autoViews[path]);
     }
-    new NewsletterSignup({name: name, email: email}).save(function (err) {
-        if (err) {
-            if (req.xhr) return res.json({error: 'Database error.'});
-            req.session.flash = {
-                type: 'danger',
-                intro: 'Database error!',
-                message: 'There was a database error; please try again later.',
-            };
-            return res.redirect(303, '/newsletter/archive');
-        }
-        if (req.xhr) return res.json({success: true});
-        req.session.flash = {
-            type: 'success',
-            intro: 'Thank you!',
-            message: 'You have now been signed up for the newsletter.',
-        };
-        return res.redirect(303, '/newsletter/archive');
-    });
-});
-app.get('/newsletter/archive', function (req, res) {
-    res.render('newsletter/archive');
-});
-app.post('/process', function (req, res) {
-    if (req.xhr || req.accepts('json,html') === 'json') {
-        // 如果有錯誤的話，我們會傳送{error:'error description'}
-        res.send({success: true});
-    } else {
-        // 如果有錯誤的話，我們會重新導向一個錯誤網頁
-        res.redirect(303, '/thank-you');
-    }
-});
-app.get('/contest/vacation-photo', function (req, res) {
-    var now = new Date();
-    res.render('contest/vacation-photo', {
-        year: now.getFullYear(),
-        month: now.getMonth()
-    });
-});
-
-var dataDir = __dirname + '/data';
-var vacationPhotoDir = dataDir + '/vacation-photo';
-fs.existsSync(dataDir) || fs.mkdirSync(dataDir);
-fs.existsSync(vacationPhotoDir) || fs.mkdirSync(vacationPhotoDir);
-
-function saveContestEntry(contestName, email, year, month, photoPath) {
-    // 待辦...稍後加入
-}
-
-app.post('/contest/vacation-photo/:year/:month', function (req, res) {
-    var form = new formidable.IncomingForm();
-    form.parse(req, function (err, fields, files) {
-        if (err) return res.redirect(303, '/error');
-        if (err) {
-            res.session.flash = {
-                type: 'danger',
-                intro: 'Oops!',
-                message: 'There was an error processing your submission. Please try again.'
-            };
-            return res.redirect(303, '/contest/vacation-photo');
-        }
-        var photo = files.photo;
-        var dir = vacationPhotoDir + '/' + Date.now();
-        var path = dir + '/' + photo.name;
-        fs.mkdirSync(dir);
-        fs.renameSync(photo.path, dir + '/' + photo.name);
-        saveContestEntry('vacation-photo', fields.email, req.params.year, req.params.month, path);
-        req.session.flash = {
-            type: 'success',
-            intro: 'Good luck',
-            message: 'You have been entered into the contest.'
-        };
-        return res.redirect(303, '/contest/vacation-photo/entries');
-    });
-});
-
-app.get('/fail', function (req, res) {
-    throw new Error('Nope!');
-});
-app.get('/epic-fail', function (req, res) {
-    process.nextTick(function () {
-        throw new Error('Kaboom!');
-    });
-});
-
-app.get('/set-currency/:currency', function (req, res) {
-    req.session.currency = req.params.currency;
-    return res.redirect(303, '/vacations');
-});
-
-function convertFromUSD(value, currency) {
-    switch (currency) {
-        case 'USD':
-            return value * 1;
-        case 'GBP':
-            return value * 0.6;
-        case 'BTC':
-            return value * 0.0023707918444761;
-        default:
-            return NaN;
-    }
-}
-
-app.get('/vacations', function (req, res) {
-    Vacation.find({available: true}, function (err, vacations) {
-        var currency = req.session.currency || 'USD';
-        var context = {
-            currency: currency,
-            vacations: vacations.map(function (vacation) {
-                return {
-                    sku: vacation.sku,
-                    name: vacation.name,
-                    description: vacation.description,
-                    inSeason: vacation.inSeason,
-                    price: convertFromUSD(vacation.priceInCents/100, currency),
-                    qty: vacation.qty,
-                };
-            })
-        };
-        switch (currency) {
-            case 'USD':
-                context.currencyUSD = 'selected';
-                break;
-            case 'GBP':
-                context.currencyGBP = 'selected';
-                break;
-            case 'BTC':
-                context.currencyBTC = 'selected';
-                break;
-        }
-        res.render('vacations', context);
-    });
-});
-
-// app.use(require('./lib/tourRequiresWaiver'));
-app.use(cartValidation.checkWaivers);
-app.use(cartValidation.checkGuestCounts);
-
-app.get('/cart/add', function (req, res, next) {
-    var cart = req.session.cart || (req.session.cart = {items: []});
-    Vacation.findOne({sku: req.query.sku}, function (err, vacation) {
-        if (err) return next(err);
-        if (!vacation) return next(new Error('Unknown vacation SKU: ' + req.query.sku));
-        cart.items.push({
-            vacation: vacation,
-            guests: req.body.guests || 1,
-        });
-        res.redirect(303, '/cart');
-    });
-});
-app.get('/cart', function (req, res, next) {
-    var cart = req.session.cart;
-    if (!cart) next();
-    res.render('cart', {cart: cart});
-});
-app.get('/cart/checkout', function (req, res, next) {
-    var cart = req.session.cart;
-    if (!cart) next();
-    res.render('cart-checkout');
-});
-app.get('/cart/thank-you', function (req, res) {
-    res.render('cart-thank-you', {cart: req.session.cart});
-});
-app.get('/email/cart/thank-you', function (req, res) {
-    res.render('email/cart-thank-you', {cart: req.session.cart, layout: null});
-});
-app.post('/cart/checkout', function (req, res, next) {
-    var cart = req.session.cart;
-    if (!cart) return next(new Error('Cart does not exist'));
-    var name = req.body.name || '', email = req.body.email || '';
-    // 輸入驗證
-    if (!email.match(VALID_EMAIL_REGEX)) {
-        return next(new Error('Invalid email address.'));
-    }
-    // 指定隨機的購物車ID，通常我們會在這裡使用資料庫ID
-    cart.number = Math.random().toString().replace(/^0\.0*/, '');
-    cart.billing = {
-        name: name,
-        email: email,
-    };
-    res.render('email/cart-thank-you', {
-        layout: null,
-        cart: cart
-    }, function (err, html) {
-        if (err) console.log('error in email template');
-        emailService.send(cart.billing.email,
-            'Thank you for booking your trip with Meadowlark Travel!',
-            html);
-    });
-    res.render('cart-thank-you', {cart: cart});
-});
-app.get('/notify-me-when-in-season', function (req, res) {
-    res.render('notify-me-when-in-season', {sku: req.query.sku});
-});
-app.post('/notify-me-when-in-season', function (req, res) {
-    VacationInSeasonListener.update(
-        {email: req.body.email},
-        {$push: {skus: req.body.sku}},
-        {upsert: true},
-        function (err) {
-            if (err) {
-                console.error(err.stack);
-                req.session.flash = {
-                    type: 'danger',
-                    intro: 'Oops!',
-                    message: 'There was an error processing your request.',
-                };
-                return res.redirect(303, '/vacations');
-            }
-            req.session.flash = {
-                type: 'success',
-                intro: 'Thank you',
-                message: 'You will be notified when this vacation is in season.'
-            };
-            return res.redirect(303, '/vacations');
-        });
-});
-
-var staff = {
-    mitch: {bio: 'Mitch is the man to have at your back in a bar fight'},
-    madeline: {bio: 'madeline is our Oregon expert.'},
-    walt: {bio: 'Walt is our Oregon Coast expert.'}
-};
-app.get('/staff/:name', function (req, res, next) {
-    var info = staff[req.params.name];
-    if (!info) return next();        // 最終會產生404失敗
-    res.render('staffer', info);
+    // 沒有發現視圖，傳至404處理程式
+    next();
 });
 
 
