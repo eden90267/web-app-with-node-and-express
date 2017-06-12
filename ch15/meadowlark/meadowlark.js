@@ -2,6 +2,7 @@
  * Created by eden90267 on 2017/6/2.
  */
 var http = require('http'),
+    connect = require('connect'),
     express = require('express'),
     mongoose = require('mongoose'),
     vhost = require('vhost'),
@@ -258,6 +259,76 @@ app.use('/upload', function (req, res, next) {
 
 // add routes
 require('./routes')(app);
+
+// add api
+
+var Attraction = require('./models/attraction');
+
+// api配置
+var apiOptions = {
+    context: '',
+    domain: require('domain').create(),
+};
+
+apiOptions.domain.on('error', function (err) {
+    console.log('API domain error.\n', err.stack);
+    setTimeout(function () {
+        console.log('Server shutting down after API domain error.');
+        process.exit(1);
+    }, 5000);
+    server.close();
+    var worker = require('cluster').worker;
+    if (worker) worker.disconnect();
+});
+
+var rest = require('connect-rest').create(apiOptions);
+
+rest.get('/attractions', function (req, content, cb) {
+    Attraction.find({approved: true}, function (err, attractions) {
+        if (err) return cb({error: 'Internal error.'});
+        cb(null, attractions.map(function (a) {
+            return {
+                name: a.name,
+                id: a._id,
+                description: a.description,
+                location: a.locations,
+            };
+        }));
+    });
+});
+
+rest.post('/attraction', function (req, content, cb) {
+    var a = new Attraction({
+        name: req.body.name,
+        description: req.body.description,
+        location: {lat: req.body.lat, lng: req.body.lng},
+        history: {
+            event: 'created',
+            email: req.body.email,
+            date: new Date(),
+        },
+        approved: false,
+    });
+    a.save(function (err, a) {
+        if (err) return cb({ error: 'Unable to add attraction.'});
+        cb(null, {id: a._id});
+    });
+});
+
+rest.get('/attraction/:id', function (req, content, cb) {
+    Attraction.findById(req.params.id, function (err, a) {
+        if (err) return cb({error: 'Unable to retrieve attraction.'});
+        cb(null, {
+            name: a.name,
+            id: a._id,
+            description: a.description,
+            location: a.location
+        });
+    });
+});
+
+// 將API連結到管道
+app.use(vhost('api.*', rest.processRequest()));
 
 var autoViews = {};
 var fs = require('fs');

@@ -12,7 +12,9 @@
     "body-parser": "^1.17.2",
     "connect": "^3.6.2",
     "connect-redis": "^3.3.0",
+    "connect-rest": "^2.12.5",
     "cookie-parser": "^1.4.3",
+    "cors": "^2.8.3",
     "express": "^4.15.3",
     "express-handlebars": "^3.0.0",
     "express-logger": "0.0.3",
@@ -33,6 +35,7 @@
     "grunt-contrib-jshint": "^1.1.0",
     "grunt-link-checker": "^0.2.0",
     "mocha": "^3.4.2",
+    "restler": "^3.4.0",
     "zombie": "^5.0.5"
   }
 }
