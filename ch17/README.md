@@ -24,6 +24,202 @@ model與展示層可完全地分開，但要付出很大的代價。model的邏�
 
 建議在專案建立一個子目錄，稱為*models*來保存model。當有邏輯需要實作，或有資料需要儲存時，應該在models目錄裡面的檔案中做這件事。例如，客戶資料及邏輯放在一個稱為*models/customer.js*的檔案。
 
-```
+*models/order.js*：
 
 ```
+var mongoose = require('mongoose');
+var orderSchema = mongoose.Schema({
+    /* TODO */
+});
+var Order = mongoose.model('Order', orderSchema);
+module.exports = Order;
+```
+
+*models/customer.js*
+
+```
+var mongoose = require('mongoose');
+var Orders = require('./orders.js');
+
+var customerSchema = mongoose.Schema({
+    firstName: String,
+    lastName: String,
+    address1: String,
+    address2: String,
+    city: String,
+    state: String,
+    zip: String,
+    phone: String,
+    salesNodes: [{
+        date: Date,
+        salespersonId: Number,
+        notes: String
+    }],
+});
+
+customerSchema.method.getOrders = function () {
+    return Orders.find({customerId: this._id});
+};
+
+var Customer = mongoose.model('Customer', customerSchema);
+module.exports = Customer;
+```
+
+## View Model
+
+雖然我比較不喜歡將model直接傳給view，如果你想要修改model的原因，只因為你需要在view顯示一些東西，我當然建議你建立一個view model。view model可讓你抽象地保持你的model，同時提供有意義的資料給view。
+
+以之前內容為例，想建立一個view來顯示客戶資訊以及訂單清單。目前的Customer：
+
+- 不想讓客戶看到的資料(銷售票據)
+- 想以不同格式將資料格式化(郵件地址及電話號碼)
+- 顯示某些不在Customer model裡面的資料，例如客戶訂單的列表
+
+這就是view model好用的地方。建立*viewModels/customer.js*：
+
+```
+// 將欄位結合在一起的函式
+function smartJoin(arr, separator) {
+    if (!separator) separator = ' ';
+    return arr.filter(function (elt) {
+        return elt !== undefined && elt !== null && elt.toString().trim() !== '';
+    }).join(separator);
+}
+
+var _ = require('underscore');
+
+module.exports = function (customer, orders) {
+    var vm = _.omit(customer, 'salesNotes');
+    return _.extend(vm, {
+        name: smartJoin([vm.firstName, vm.lastName]),
+        fullAddress: smartJoin([
+            customer.address1,
+            customer.address2,
+            customer.city + ', ' + customer.state + ' ' + customer.zip,
+        ], '<br>'),
+        orders: orders.map(function (order) {
+            return {
+                orderNumber: order.orderNumber,
+                date: order.date,
+                status: order.status,
+                url: '/orders/' + order.orderNumber
+            };
+        }),
+    });
+};
+```
+
+view model的概念，基本上是為了保護model的完整性與範圍。如果你找到所有的複本(例如firstName: customer.firstName)，或許可以用Underscore，它會讓你有能力對物件進行更詳細的組合。例如，你可以複製一個物件，只挑選你要的屬性做其他事情，並複製一個物件，來去除某些特定安裝。(npm install --save underscore安裝)。
+
+客戶清單的匿名view model，若要是很多地方使用，就應該建立一個客戶清單view model物件。
+
+## Controller
+
+controller負責處理使用者互動，並根據使用者互動來選擇適當的view來顯示。聽起來很像請求路由，不是嗎？在現實世界中，controller與路由程式之間的唯一差異，就是controller通常會將相關功能放在同一個群組。我們已經看過一些將相關路由放在一起的方法，現在只是將它稱為controller，讓它比較正式。
+
+想像一個“客戶controller”：他負責檢視及編輯客戶的資訊，包括客戶訂單。controllers/customer.js：
+
+```
+/**
+ * Created by eden90267 on 2017/6/15.
+ */
+var Customer = require('../models/customer');
+var customerViewModel = require('../viewModels/customer');
+
+module.exports = {
+
+    registerRoutes: function (app) {
+        app.get('/customer/register', this.register);
+        app.post('/customer/register', this.processRegister);
+
+        app.get('/customer/:id', this.home);
+        app.get('/customer/:id/preferences', this.preferences);
+        app.get('/orders/:id', this.orders);
+
+        app.post('/customer/:id/update', this.ajaxUpdate);
+    },
+
+    register: function (req, res, next) {
+        res.render('customer/register');
+    },
+
+    processRegister: function (req, res, next) {
+        // TODO: back-end validation (safety)
+        var c = new Customer({
+            firstName: req.body.firstName,
+            lastName: req.body.lastName,
+            email: req.body.email,
+            address1: req.body.address1,
+            address2: req.body.address2,
+            city: req.body.city,
+            state: req.body.state,
+            zip: req.body.zip,
+            phone: req.body.phone,
+        });
+        c.save(function (err) {
+            if (err) return next(err);
+            res.redirect(303, '/customer/' + c._id);
+        });
+    },
+
+    home: function (req, res, next) {
+        Customer.findById(req.params.id, function (err, customer) {
+            if (err) next(err);
+            if (!customer) return next();
+            customer.getOrders(function (err, orders) {
+                if (err) return next(err);
+                res.render('customer/home', customerViewModel(customer, orders));
+            });
+        });
+    },
+
+    preferences: function(req, res, next) {
+        Customer.findById(req.params.id, function(err, customer) {
+            if(err) return next(err);
+            if(!customer) return next(); 	// pass this on to 404 handler
+            customer.getOrders(function(err, orders) {
+                if(err) return next(err);
+                res.render('customer/preferences', customerViewModel(customer, orders));
+            });
+        });
+    },
+
+    orders: function (req, res, next) {
+        Customer.findById(req.params.id, function (err, customer) {
+            if (err) next(err);
+            if (!customer) return next();  // pass this on to 404 handler
+            customer.getOrders(function (err, orders) {
+                if (err) return next(err);
+                res.render('customer/preferences', customerViewModel(customer, orders));
+            });
+        });
+    },
+
+    ajaxUpdate: function (req, res, next) {
+        Customer.findById(req.params.id, function (err, customer) {
+            if (err) return next(err);
+            if (!customer) return next();
+            if (req.body.firstName) {
+                if (typeof req.body.firstName !== 'string' || req.body.firstName.trim() === '') {
+                    return res.json({error: 'Invalid name.'});
+                }
+                customer.firstName = req.body.firstName;
+            }
+            // and so on...
+            customer.save(function (err) {
+                return err ? res.json({error: 'Unable to update customer'}) : res.json({success: true});
+            });
+        });
+    }
+
+
+};
+```
+
+在controller中，我們將路由管理與實際的功能分開。
+
+如果你想編寫一個controller，讓它也可以處理各種附加在它上面的UI類型，這是可行的做法(例如原生app)。
+
+## 結論
+
+MVC只是一般概念，不是具體技術。我們這章只是將路由處理程式稱為“controller”來讓他聽起來比較正式一點，並且將路由與功能分開。我們也介紹view model的概念，我認為它對於保持model的完整性很重要。
