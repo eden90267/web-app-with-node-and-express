@@ -30,6 +30,10 @@ var handlebars = require('express3-handlebars').create({
 app.engine('handlebars', handlebars.engine);
 app.set('view engine', 'handlebars');
 
+// set up css/js bundling
+var bundler = require('connect-bundle')(require('./config'));
+app.use(bundler);
+
 // 可藉由設定環境值(PORT)來改寫連接埠
 app.set('port', process.env.PORT || 3000);
 
@@ -238,9 +242,14 @@ app.use(function (req, res, next) {
 var static = require('./lib/static').map;
 app.use(function (req, res, next) {
     var now = new Date();
-    console.log(now.getMonth());
-    console.log(now.getDate());
     res.locals.logoImage = now.getMonth() === 11 && now.getDate() === 19 ? static('/img/logo_bud_clark.png') : static('/img/logo.png');
+    next();
+});
+
+// middleware to provide cart data for header
+app.use(function (req, res, next) {
+    var cart = req.session.cart;
+    res.locals.cartItems = cart && cart.items ? cart.items.length : 0;
     next();
 });
 

@@ -19,12 +19,12 @@ exports.addProcess = function (req, res, next) {
 };
 exports.home = function (req, res, next) {
     var cart = req.session.cart;
-    if (!cart) next();
+    if (!cart) return next();
     res.render('cart', {cart: cart});
 };
 exports.checkout = function (req, res, next) {
     var cart = req.session.cart;
-    if (!cart) next();
+    if (!cart) return next();
     res.render('cart-checkout');
 };
 exports.thankYou = function (req, res) {

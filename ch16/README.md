@@ -165,6 +165,347 @@ app.use(function (req, res, next) {
 
 如果我們開始使用資料來做更複雜的對應，它將會再也不能在瀏覽器中工作。此時我們就必須發出AJAX呼叫，讓伺服器為我們對應檔案，這會大大的減緩速度。
 
+使用jQuery來動態改變購物車圖像。當我們將圖像移到CDN，這會分崩離析：
+
+*meadowlark.js*：
+
+```
+// middleware to provide cart data for header
+app.use(function (req, res, next) {
+    var cart = req.session.cart;
+    res.locals.cartItems = cart && cart.items ? cart.items.length : 0;
+    next();
+});
+```
+
+*main.handlebars*：
+
+```
+<header>
+    <div class="row">
+        <div class="col-sm-4">
+            <img src="{{logoImage}}" alt="Meadowlark Travel Logo">
+        </div>
+        <div class="col-sm-2 pull-right">
+            {{! The following represents a lot of code duplication, so we will probably want to change this in the future }}
+            <a href="/cart">
+                {{#if cartItems}}
+                    <img class="cartIcon"
+                         src="{{static '/img/shop/cart_full.png'}}'"
+                         alt="Cart Contains {{cartItems}} Items">
+                {{else}}
+                    <img class="cartIcon"
+                         src="{{static '/img/shop/cart_empty.png'}}"
+                         alt="Cart Contains {{cartItems}} Items">
+                {{/if}}
+            </a>
+        </div>
+    </div>
+</header>
 ```
 
 ```
+$(document).on('meadowlark_cart_changed', function () {
+        $('header img.cartIcon').attr('src', cart.isEmpty() ? '/img/shop/cart_empty.png' : '/img/shop/cart_full.png');
+    });
+```
+
+所以我們希望可以對應這些圖像。解決方案是在伺服器做對應，並設定自訂的JavaScript變數。讓jQuery直接使用這些變數：
+
+```
+var IMG_CART_EMPTY = '{{static '/img/shop/cart_empty.png'}}';
+var IMG_CART_FULL = '{{static '/img/shop/cart_full.png'}}';
+
+$(document).on('meadowlark_cart_changed', function () {
+        $('header img.cartIcon').attr('src', cart.isEmpty() ? IMG_CART_EMPTY : IMG_CART_FULL);
+    });
+```
+
+若你在用戶端做大量的圖像交換，或許會想要在一個物件裡面組織所有的圖像變數(自己變成某種對應)：
+
+```
+<script>
+    // 一個物件裡面組織所有的圖像變數
+    var static = {
+        IMG_CART_EMPTY: '{{static '/img/shop/cart_empty.png'}}',
+        IMG_CART_FULL: '{{static '/img/shop/cart_full.png'}}'
+    }
+</script>
+```
+
+## 傳送靜態資源
+
+我們已經知道如何建立一個框架來改變傳送靜態資源的地方。但資產的最佳儲存方式是什麼？了解瀏覽器所使用的標頭，可以協助你決定如何(及是否)緩存資源：
+
+- **Expires/Cache-Control**
+
+    這兩個標頭說明你的瀏覽器資源可緩存的最長時間。瀏覽器會認真地看待它們。但不是完全掌控：使用者可以手動清除快取，或瀏覽器可以清除你的資源，將空間留給其他使用者較常造訪的資源。Expires受到較廣泛的資源，所以使用它是較好的選擇。如果資源在快取裡面，而且它還沒有逾期，瀏覽器就完全不會發出一個GET請求，這可提升效能，特別是在行動設備上。
+
+- **Last-Modified/ETag**
+
+    這兩個標籤提供版本控制：如果瀏覽器需要擷取資源，它會在下載內容**之前**先檢視這些標籤。GET請求仍然會被發送到伺服器，但如果這些標頭回傳的值滿足資源尚未改變的瀏覽器，它就不會繼續下載檔案。Last-Modified指定資源最後修改的日期。ETag可使用任意的字串，它通常是一個版本字串或內容雜湊。
+
+傳遞靜態資源時，你應該使用Expires標頭**以及**Last-Modified或ETag。Express的內建satic中介軟體會設定Cache-Control，但不會處理Last-Modified或ETag。因此，雖然它很適合用來開發，但它不是一個很好的部署方案。
+
+如果你選擇將靜態資源放在CDN，例如Amazon CloudFront、Microsoft Azure或MaxCDN，它們會為你處理大部分的細節。你也可微調細節，但這些服務提供的預設值已經很好了。
+
+若不想將靜態資源放在CDN，但想要用某種比Express的內建connect中介軟體更強健的東西，可考慮使用代理伺服器，例如Nginx。
+
+## 改變你的靜態內容
+
+快取可明顯增加網站效能，但它不是不用付出代價的。Google建議你緩存一個月，最好一年。想像一下，使用者一整年使用你網站但都不會看到你最新狀態。
+
+你不能要求使用者清除他們的快取。解決方案是**指紋識別**(fingerprinting)，指紋識別只是將資源名稱加上某種版本資訊。當你更新資產，資源名稱會改變，讓瀏覽器知道要下載它。
+
+如果你正處於有大量圖像位於CDN，你就要考慮讓靜態對應程式更複雜。例如，你或許會將所有數位資產的版本存在一個資源庫，靜態對應程式可以查看資產名稱，並回傳資產**最近的版本的URL**。
+
+你至少要在CSS與JavaScript檔使用指紋識別。當你推出新功能或改變網頁版面配置之後，使用者卻因為資源被緩存而無法看到改變的時候，才真的讓人沮喪。
+
+除了將各個檔案加上指紋識別外，最受歡迎的替代方案是**統合**你的資源。統合會將你的所有CSS弄成一個檔案，人類無法看懂他，你的用戶端JavaScript也一樣。因為新的檔案會被各種方式建構出來，將這些檔案加上指紋識別通常是很簡單且常見做法。
+
+## 統合與壓縮
+
+統合與壓縮，讓Grunt協助我們管理繁重的工作。
+
+建立兩個檔案：一個供聯絡方式表單提交處理程式使用，另一個則是供購物車功能使用。
+
+*public/js/contact.js*：
+
+```
+$(document).ready(function () {
+    console.log('contact forms initialized');
+});
+```
+
+*public/js/cart.js*：
+
+```
+$(document).ready(function () {
+    console.log('shopping cart initialized');
+});
+```
+
+Gruntfile.js：
+
+```
+npm install --save-dev grunt-contrib-uglify grunt-contrib-cssmin grunt-hashres
+```
+
+```
+[
+    'grunt-cafe-mocha',
+    'grunt-contrib-jshint',
+    'grunt-link-checker',
+    'grunt-contrib-less',
+    'grunt-contrib-uglify',
+    'grunt-contrib-cssmin',
+    'grunt-hashres'
+].forEach(function (task) {
+    grunt.loadNpmTasks(task);
+});
+
+// ...
+
+uglify: {
+    all: {
+        files: {
+            'public/js/meadowlark.min.js': ['public/js/**/*.js']
+        }
+    }
+},
+cssmin: {
+    combine: {
+        files: {
+            'public/css/meadowlark.css': ['public/css/**/*.css', '!public/css/meadowlark*.css']
+        }
+    },
+    minify: {
+        src: 'public/css/meadowlark.css',
+        dest: 'public/css/meadowlark.min.css',
+    }
+},
+hashres: {
+    options: {
+        fileNameFormat: '${name}.${hash}.${ext}'
+    },
+    all: {
+        src: [
+            'public/js/meadowlark.min.js',
+            'public/css/meadowlark.min.css',
+        ],
+        dest: [
+            'views/layout/main.handlebars',
+        ]
+    }
+}
+});
+```
+
+接下來，版面配置修改：
+
+```
+<link rel="stylesheet" href="{{static '/css/meadowlark.min.css'}}">
+// ...
+<script src="{{static '/js/meadowlark.min.js'}}"></script>
+```
+
+```
+grunt less
+grunt cssmin
+grunt uglify
+grunt hashres
+```
+
+這樣很費工，我們來設定Grunt工作：
+
+```
+grunt.registerTask('static', ['less', 'cssmin', 'uglify', 'hashres']);
+```
+
+這樣只要輸入grunt static，就可以照顧到所有事情。
+
+## 在開發模式下，跳過統合與壓縮
+
+統合與壓縮有一個問題：它會讓前端除錯無法進行。理想的方式，就是想辦法在開發模式下取消統合及壓縮。我已經為你編寫這個模組了：connect-bundle。
+
+```
+// set up css/js bundling
+var bundler = require('connect-bundle')(require('./config'));
+app.use(bundler);
+```
+
+接著建立一個設定檔*config.js*：
+
+```
+module.exports = {
+    bundles: {
+
+        clientJavaScript: {
+            main: {
+                file: '/js/meadowlark.min.js',
+                location: 'head',
+                contents: [
+                    '/js/contact.js',
+                    '/js/cart.js',
+                ]
+            }
+        },
+
+        clientCss: {
+            main: {
+                file: '/css/meadowlark.min.css',
+                contents: [
+                    '/css/main.css',
+                    '/css/cart.css',
+                ]
+            }
+        }
+
+    }
+};
+```
+
+在這裡，我們只指定“標頭”(我們可任意稱呼它，但JavaScript統合必須要有一個位置)。
+
+修改版面配置：
+
+```
+{{#each _bundles.css}}
+    <link rel="stylesheet" href="{{static .}}">
+{{/each}}
+{{#each _bundles.js.head}}
+    <script src="{{static .}}"></script>
+{{/each}}
+```
+
+如想使用指紋識別的統合名稱，就必須修改config.js。修改Gruntfile.js：
+
+```
+hashres: {
+    options: {
+        fileNameFormat: '${name}.${hash}.${ext}'
+    },
+    all: {
+        src: [
+            'public/js/meadowlark.min.js',
+            'public/css/meadowlark.min.css',
+        ],
+        dest: [
+            'config.js',
+        ]
+    }
+}
+```
+
+## 關於第三方程式
+
+可看到jQuery並未統合起來。如果你只使用一或兩個第三方程式庫，或許不值得將它們與你的指令碼綁在一起。但是如果你有五個以上程式庫，或許你可以看到統合程式庫對效能的改善。
+
+## QA
+
+與其等待不可避免的錯誤發生，或期望程式審查抓到問題，何不在QA工具鏈中加入一個元件來解決問題？我們將使用一個Grunt外掛，grunt-lint-pattern，它會在原始檔案中搜尋一種模式，並且在發現時產生一個錯誤。
+
+```
+npm install --save-dev grunt-lint-pattern
+```
+
+```
+lint_pattern: {
+    view_statics: {
+        options: {
+            rules: [
+                {
+                    pattern: /<link [^>]*href=["'](?!{{|(https?:)?\/\/)/,
+                    message: 'Un-mapped static resource found in <link>.'
+                },
+                {
+                    pattern: /<script [^>]*src=["'](?!{{|(https?:)?\/\/)/,
+                    message: 'Un-mapped static resource found in <script>.'
+                },
+                {
+                    pattern: /<img [^>]*src=["'](?!{{|(https?:)?\/\/)/,
+                    message: 'Un-mapped static resource found in <img>.'
+                }
+            ]
+        },
+        files: {
+            src: [
+                'views/**/*.handlebars'
+            ]
+        }
+    },
+    css_statics: {
+        options: {
+            rules: [
+                {
+                    pattern: /url\(/,
+                    message: 'Un-mapped static found in LESS property.'
+                },
+            ]
+        },
+        files: {
+            src: [
+                'less/**/*.less'
+            ]
+        }
+    }
+}
+```
+
+接著在你預設規則中加入lint_pattern：
+
+```
+grunt.registerTask('default', ['cafemocha', 'jshint', 'linkChecker', 'lint_pattern']);
+```
+
+現在當我們執行grunt，會捕捉所有未對應的靜態實例。
+
+## 結論
+
+靜態資源最佳化，雖然帶來很多麻煩，但它們可能代表實際被傳送到你的訪客那裡的大量資料，因此花些時間處理它們，將會帶來大量的回報。
+
+靜態對應，對於某些小型或較不複雜的網站而言，可能有點大材小用。對於這些專案另一可行辦法，就是一開始就在CDN上託管你的靜態資源，並在視圖與CSS中使用完整的資源URL。也可用lint確保你不是在本地託管靜態資源：`(?:https?:)//`。
+
+精心統合與壓縮是另一種節省時間的方式。
+
+無論哪一種技術提供靜態資源，我都強烈建議將他們分開託管，最好在CDN上。CDN的託管成本很低，而且明顯提升效能。
