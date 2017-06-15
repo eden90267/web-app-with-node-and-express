@@ -152,5 +152,96 @@ npm install --save csurf
 接著將它連結起來，並添加一個權杖至res.locals：
 
 ```
+// 這必須在cookie解析器與連結期程之後
+app.use(require('csurf')());
+app.use(function (req, res, next) {
+    res.locals._csrfToken = req.csrfToken();
+    next();
+});
+```
+
+csurf中介軟體會在請求物件中添加csurfToken方法。我們不一定要將它指派給res.locals，也可以直接明確地將req.csurfToken()傳遞至每一個需要它的視圖，這通常比較不費工。
+
+現在你必須在你的所有表單(及AJAX呼叫)中提供一個名為_csrf的欄位，它必須符合生成的權杖。
 
 ```
+<div class="formContainer">
+    <form class="form-horizontal newsletterForm" role="form"
+          action="/newsletter" method="POST">
+        <input type="hidden" name="_csrf" value="{{_csrfToken}}">
+        <div class="form-group">
+            <label for="fieldName" class="col-sm-2 control-label">Name</label>
+            <div class="col-sm-4">
+                <input type="text" class="form-control"
+                       id="fieldName" name="name">
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="fieldEmail" class="col-sm-2 control-label">Email</label>
+            <div class="col-sm-4">
+                <input type="email" class="form-control" required
+                       id="fieldEmail" name="email">
+            </div>
+        </div>
+        <div class="form-group">
+            <div class="col-sm-offset-2 col-sm-4">
+                <button type="submit" class="btn btn-default">Register</button>
+            </div>
+        </div>
+    </form>
+</div>
+```
+
+csurf會處理剩下的部分，如果內文含有其他欄位，但沒有有效的_csrf欄位，它會發出一個錯誤。
+
+Top：如果你有一個API，或許你不想讓csurf中介軟體干擾它。如果你想要限制其他網站存取你的API，應該參考connect-rest的"API金鑰"功能。要避免csurf干擾你的中介軟體，請在連結csurf之前將它連結進來。
+
+## 驗證
+
+驗證是個龐大、複雜的主題。**不要試著自己做**。
+
+### 驗證 VS. 授權
+
+- 驗證(Authentication)代表驗證使用者的身分。
+- 授權是判斷使用者被授權使用、修改，或檢視。
+
+### 密碼的問題
+
+密碼的問題在於，每一個安全系統的強度，取決於它的最弱環節。讓使用者想出一個密碼，就是最弱的環節。
+
+身為app設計者的你將無法做太多事情來修正這種結果，但是，你可以做一些事情來促進更安全的密碼。其中之一就是卸下責任，依賴第三方驗證。另一個是讓密碼管理服務可輕鬆地使用你的登錄系統，**例如LastPass**、RoboForm與PasswordBox。
+
+### 第三方驗證
+
+Google、Facebook、Twitter或LinkedIn，這些服務都有提供一個機制，可透過它們的服務來驗證並識別你的使用者。
+
+Top：第三方驗證通常被稱為**聯合驗證**或**委派驗證**。聯合驗證通常與SAML與OpenID有關，而委派驗證通常與OAuth有關。
+
+一般情況下，當使用者看到他們必須建立另一個帳號與密碼時，他們會選擇離開。
+
+### 在你的資料庫中儲存使用者
+
+無論你是否使用第三方驗證，都會在自己的資料庫裡面儲存使用者的紀錄。例如，如果需要儲存使用者的設定項目，就不能用Facebook來做這件事：你必須在自己的資料庫中儲存關於使用者的資訊。此外，你或許想要將email與你的使用者結合在一起，但他們不想要使用Facebook上的email地址(或其他第三方驗證服務)。最後，在資料庫儲存使用者資訊可讓你自行執行驗證，如果你想提供這項服務的話。
+
+建立一個模型，*models/user.js*：
+
+```
+var mongoose = require('mongoose');
+
+var userSchema = mongoose.Schema({
+    authId: String,
+    name: String,
+    email: String,
+    role: String,
+    created: Date,
+});
+
+var user = mongoose.model('User', userSchema);
+module.exports = user;
+```
+
+我們需要一筆使用者紀錄對應到一個第三方ID，所以我們有自己的ID特性，稱為authId。因為我們會使用多重驗證策略，那個ID會是策略類型及第三方ID的結合，以避免牴觸。例如：facebook:525764102、twitter:376841763。
+
+我們會在範例中使用兩種角色："客戶"與"員工"。
+
+### 驗證 VS. 註冊，使用者體驗

@@ -190,7 +190,24 @@ app.use(session({
     store: store,
 }));
 
+app.use('/upload', function (req, res, next) {
+    var now = Date.now();
+    jqupload.fileHandler({
+        uploadDir: function () {
+            return __dirname + '/public/uploads/' + now;
+        },
+        uploadUrl: function () {
+            return '/uploads/' + now;
+        },
+    })(req, res, next);
+});
 
+// 這必須在cookie解析器與連結期程之後
+app.use(require('csurf')());
+app.use(function (req, res, next) {
+    res.locals._csrfToken = req.csrfToken();
+    next();
+});
 
 app.use(express.static(__dirname + '/public'));
 
@@ -268,18 +285,6 @@ admin.get('/users', function (req, res) {
     res.render('admin/users');
 });
 
-app.use('/upload', function (req, res, next) {
-    var now = Date.now();
-    jqupload.fileHandler({
-        uploadDir: function () {
-            return __dirname + '/public/uploads/' + now;
-        },
-        uploadUrl: function () {
-            return '/uploads/' + now;
-        },
-    })(req, res, next);
-});
-
 // add routes
 require('./routes')(app);
 
@@ -291,7 +296,9 @@ var Attraction = require('./models/attraction');
 var apiOptions = {
     context: '',
     domain: require('domain').create(),
+    // 'apiKeys': [ '849b7648-14b8-4154-9ef2-8d1dc4c2b7e9' ]
 };
+// add 'apiKey' options and then access url: 'https://api.localhost:3000/attractions?api_key=849b7648-14b8-4154-9ef2-8d1dc4c2b7e9'
 
 apiOptions.domain.on('error', function (err) {
     console.log('API domain error.\n', err.stack);

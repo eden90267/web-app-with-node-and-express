@@ -2,6 +2,7 @@
     <form action="/notify-me-when-in-season" role="form" method="POST"
           class="form-horizontal newsletterForm">
         <input type="hidden" name="sku" value="{{sku}}">
+        <input type="hidden" name="_csrf" value="{{_csrfToken}}">
         <div class="form-group">
             <label for="fieldEmail" class="col-sm-2 control-label">Email</label>
             <div class="col-sm-4">
