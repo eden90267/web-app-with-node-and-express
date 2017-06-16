@@ -385,7 +385,7 @@ init: function () {
     passport.use(new FacebookStrategy({
         clientID: config.facebook[env].appId,
         clientSecret: config.facebook[env].appSecret,
-        callbackURL: '/auth/facebook/callback',
+        callbackURL: (options.baseUrl || '') + '/auth/facebook/callback',
     }, function (accessToken, refreshToken, profile, done) {
         var authId = 'facebook:' + profile.id;
         User.findOne({authId: authId}, function (err, user) {
@@ -419,14 +419,18 @@ init: function () {
 registerRoutes: function () {
     // 註冊Facebook路由
     app.get('/auth/facebook', function (req, res, next) {
-        passport.authenticate('facebook', {
-            callbackURL: '/auth/facebook/callback?redirect=' + encodeURIComponent(req.query.redirect)
-        })(req, res, next);
+        if (req.query.redirect) req.session.authRedirect = req.query.redirect;
+        passport.authenticate('facebook')(req, res, next);
     });
-    app.get('/auth/facebook/callback', passport.authenticate('facebook', {failureRedirect: options.failureRedirect}, function (req, res) {
-        // 只有在成功驗證時才會到這裡
-        res.redirect(303, req.query.redirect || options.successRedirect);
-    }));
+    app.get('/auth/facebook/callback', passport.authenticate('facebook',
+        {failureRedirect: options.failureRedirect}),
+        function (req, res) {
+            // 只有在成功驗證時才會到這裡
+            var redirect = req.session.authRedirect;
+            if (redirect) delete req.session.authRedirect;
+            res.redirect(303, redirect || options.successRedirect);
+        }
+    );
 }
 ```
 
@@ -504,4 +508,47 @@ function allow(roles) {
 app.get('/account', allow('customer,employee'), function(req, res){
     res.render('account');
 });
+```
+
+### 添加額外的授權提供者
+
+```
+passport.use(new GoogleStrategy({
+    clientID: config.google[env].clientID,
+    clientSecret: config.google[env].clientSecret,
+    callbackURL: (options.baseUrl || '') + '/auth/google/callback',
+}, function (token, tokenSecret, profile, done) {
+    var authId = 'google:' + profile.id;
+    User.findOne({authId: authId}, function (err, user) {
+        if (err) return done(err, null);
+        if (user) return done(null, user);
+        user = new User({
+            authId: authId,
+            name: profile.displayName,
+            created: Date.now(),
+            role: 'customer',
+        });
+        user.save(function (err) {
+            if (err) return done(err, null);
+            done(null, user);
+        });
+    });
+}));
+```
+
+```
+// 註冊Google路由
+app.get('/auth/google', function (req, res, next) {
+    if (req.query.redirect) req.session.authRedirect = req.query.redirect;
+    passport.authenticate('google', {scope: 'profile'})(req, res, next);
+});
+app.get('/auth/google/callback', passport.authenticate('google',
+    {failureRedirect: options.failureRedirect}),
+    function (req, res) {
+        // 只有在成功驗證時才會到這裡
+        var redirect = req.session.authRedirect;
+        if (redirect) delete req.session.authRedirect;
+        res.redirect(303, redirect || options.successRedirect);
+    }
+);
 ```

@@ -376,28 +376,29 @@ auth.registerRoutes();
 
 
 function customerOnly(req, res, next) {
-    var user = req.session.passport.user;
-    if (user && user.role === 'customer') return next();
+    if (req.user && req.user.role === 'customer') return next();
     res.redirect(303, '/unauthorized');
 }
 
 function employeeOnly(req, res, next) {
-    var user = req.session.passport.user;
-    if (user && user.role === 'employee') return next();
+    if (req.user && req.user.role === 'employee') return next();
     next('route');
 }
 
 function allow(roles) {
     return function (req, res, next) {
-        var user = req.session.passport.user;
-        if (user && roles.split(',').indexOf(user.role) !== -1) return next();
+        if (req.user && roles.split(',').indexOf(req.user.role) !== -1) return next();
         res.redirect(303, '/unauthorized');
     };
 }
 
+app.get('/unauthorized', function (req, res) {
+    res.status(403).render('unauthorized');
+})
+
 // 客戶路由
 app.get('/account', allow('customer,employee'), function(req, res){
-    res.render('account');
+    res.render('account', {username: req.user.name});
 });
 app.get('/account/order-history', customerOnly, function(req, res){
     res.render('account/order-history');
@@ -410,17 +411,6 @@ app.get('/account/email-prefs', customerOnly, function(req, res){
 app.get('/sales', employeeOnly, function(req, res){
     res.render('sales');
 });
-
-
-
-// customer routes
-
-app.get('/account', function (req, res) {
-    if (!req.session.passport.user)
-        return res.redirect(303, '/unauthorized');
-    res.render('account');
-});
-
 
 
 
