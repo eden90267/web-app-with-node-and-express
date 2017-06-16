@@ -265,9 +265,14 @@ module.exports = user;
 在詳細說明實作方法前，先詳細考慮這些步驟：
 
 1. **登入網頁**
+
+    使用者選擇登入方法的地方。若選擇第三方驗證，它通常只是一個按鈕或連結。如果是在地驗證，它會有帳號與密碼欄位。
+
 2. **建構驗證請求**
 
-    你將建構一個將會被用來傳送給第三方的請求(透過重新導向)。這個請求細節很複雜，而且是這種驗證策略專用的。Passport(及策略外掛)會在這裡承擔所有工作。驗證請求包含“中間人”攻擊的防護措施，以及其他攻擊者可能會利用的載體。
+    你將建構一個將會被用來傳送給第三方的請求(透過重新導向)。這個請求細節很複雜，而且是這種驗證策略專用的。Passport(及策略外掛)會在這裡承擔所有工作。驗證請求包含“中間人”攻擊的防護措施，以及其他攻擊者可能會利用的載體。通常身分驗證請求是短命的，所以你不能將它儲存以供未來使用：這可限制攻擊者的攻擊時間。
+
+    我們經常會請求使用者名稱，或許還有email地址。請記得，詢問越多資訊，他們就越不想要授權給你的應用程式。
 
 3. **確認驗證回應**
 
@@ -276,3 +281,227 @@ module.exports = user;
 4. **驗證授權**
 
     session的使用者ID，從我們資料庫取出物件。也就不用每次請求都要跟第三方驗證。如果物件不能使用，會指示“請求未獲授權”，可重導向到登入或“未獲授權”的網頁。
+
+### 設定Passport
+
+單一驗證提供者。設定Passport與Facebook策略，需要Facebook app，最好Facebook帳號用該網站的帳號連建立Facebook app(產品環境)，例如Meadowlark Travel Facebook帳號。
+
+Facebook app的管理不斷在改變，所以這邊不詳細說明，請見：[https://developers.facebook.com/docs](https://developers.facebook.com/docs)
+
+為開發與測試起見，網域名稱的設置必須相同。重點在於，你在瀏覽器輸入，用來測試app的URL(例如：*http://localhost:3000*)是與Facebook app有關聯的。目前你只能將一個網域與你的app連結在一起：如果你需要使用多個網域，就必須建立多個app(例如，Moeadowlark Dev、Meadowlark Test、Meadowlark Staging，你的產品可稱為Meadowlark Travel)。
+
+設定app之後，還需要它的專屬app ID，及它的app密碼，你可在Facebook app管理網頁找到它們。
+
+現在來安裝Passport，及Facebook驗證策略：
+
+```
+npm install --save passport passport-facebook
+```
+
+再來是寫驗證程式(如果要支援多重策略的話)，建立模組*lib/auth.js*。先從匯入及兩個Passport需要的方法開始：serializeUser與descrializeUser：
+
+```
+var User = require('../models/user'),
+    passport = require('passport'),
+    FacebookStrategy = require('passport-facebook').Strategy;
+
+passport.serializeUser(function (user, done) {
+    done(null, user._id);
+});
+
+passport.deserializeUser(function (id, done) {
+    User.findById(id, function (err, user) {
+        if (err || !user) return done(err, null);
+        done(null, user);
+    });
+});
+```
+
+Passport使用serializeUser與deserializeUser來將請求對應到已驗證的使用者，讓你可以任意地使用儲存方法。在我們案例中。我們只會在期程中儲存MongoDB指派的ID(User._id特性)。
+
+當這兩個方法都完成之後，只要有活著的期程，而且使用者已成功地驗證，req.session.passport.user就會是相應的User模型實例。
+
+接下來，我們要選擇匯出的東西。要啟用Passport功能，我們需要兩個全然不同的動作：初始化Passport，並註冊將會處理驗證的路由，及從我們的第三方驗證服務重新導向回呼。
+
+```
+module.exports = function (app, options) {
+
+    // 如果沒有指定重新導向成功或失敗，設定一些合理的預設值
+    if (!options.sucessRedirect)
+        options.sucessRedirect = '/account';
+    if (!options.failureRedirect)
+        options.failureRedirect = '/login';
+
+    return {
+        init: function () {
+            /* TODO */
+        },
+        registerRoutes: function () {
+            /* TODO */
+        }
+    };
+};
+```
+
+討論init與registerRoutes方法之前，先來看如何使用這個模組：
+
+```
+// authentication
+var auth = require('./lib/auth')(app, {
+    providers: credentials.authProviders,
+    successRedirect: '/account',
+    failureRedirect: '/unauthorized',
+});
+// auth.init()將Passport中介軟體連結起來
+auth.init();
+
+// 現在我們可以指定驗證路由
+auth.registerRoutes();
+```
+
+注意，我們也指定了providers的特性，*credentials.js*：
+
+```
+authProviders: {
+    facebook: {
+        development: {
+            appId: 'your_app_id',
+            appSecret: 'your_app_secret',
+        },
+    },
+},
+```
+
+我們在development特性中放入app資訊，這可讓我們指明開發與產品app。
+
+現在來看init方法：
+
+```
+init: function () {
+    var env = app.get('env');
+    var config = options.providers;
+
+    // 設定Facebook策略
+    passport.use(new FacebookStrategy({
+        clientID: config.facebook[env].appId,
+        clientSecret: config.facebook[env].appSecret,
+        callbackURL: '/auth/facebook/callback',
+    }, function (accessToken, refreshToken, profile, done) {
+        var authId = 'facebook:' + profile.id;
+        User.findOne({authId: authId}, function (err, user) {
+            if (err) return done(err, null);
+            if (user) return done(null, user);
+            user = new User({
+                authId: authId,
+                name: profile.displayName,
+                created: Date.now(),
+                role: 'customer',
+            });
+            user.save(function (err) {
+                if (err) return done(err, null);
+                done(null, user);
+            });
+        });
+    }));
+
+    app.use(passport.initialize());
+    app.use(passport.session());
+},
+```
+
+這是相當密集的程式，其實大部分都只是Passport樣板。最重要的部分在被傳送到FacebookStrategy實例的函式裡面。
+
+當這函式被呼叫時(在使用者被成功地驗證之後)，profile參數裡面會有Facebook使用者的資訊。最重要的是，它裡面有Facebook ID：這就是我們用來將Facebook帳號與我們的User模型連結的東西。注意我們將authId特性前面加上*facebook:*來作為命名空間。雖然機會小，這可避免Facebook ID與twitter或Google ID撞名(也可讓我們查看使用者模型來看使用者使用哪一種驗證方法，這會有很大幫助)。如果資料庫已經有這個命名空間ID的項目，我們會回傳它(這就是呼叫serializeUser的地方，它會將MongoDB ID放入期程)。如果沒有使用者紀錄被回傳，我們會建立一個新User模型，並將它存到資料庫。
+
+最後，建立，registerRoutes方法：
+
+```
+registerRoutes: function () {
+    // 註冊Facebook路由
+    app.get('/auth/facebook', function (req, res, next) {
+        passport.authenticate('facebook', {
+            callbackURL: '/auth/facebook/callback?redirect=' + encodeURIComponent(req.query.redirect)
+        })(req, res, next);
+    });
+    app.get('/auth/facebook/callback', passport.authenticate('facebook', {failureRedirect: options.failureRedirect}, function (req, res) {
+        // 只有在成功驗證時才會到這裡
+        res.redirect(303, req.query.redirect || options.successRedirect);
+    }));
+}
+```
+
+注意我們有*/auth/facebook*路徑，造訪這個路徑的訪客將會被自動重新導向到Facebook的驗證畫面(這是`passport.authenticate('facebook')`做的)。注意我們在這裡改寫預設的回呼URL：因為我們想要加入關於**我們來自何方**的資訊。因為我們將瀏覽器重新導向到Facebook來驗證之後，也會想要回到原本的地方。當使用者用Facebook來驗證之後，瀏覽器會被重新導向回你的網站。具體來說，到*/auth/facebook/callback*路徑(使用選用的redirect查詢字串代表使用者原本的地方)。在查詢字串裡面還有Passport會檢驗的驗證權杖。如果驗證失敗，Passport會將瀏覽器重新導向到options.failureRedirect。如果驗證成功，Passport會呼叫next()，就是你的應用程式回來的地方。注意在*/auth/facebook/callback*的處理程式裡面，中介軟體的鏈結方式：passport.authenticate會先被呼叫。如果它呼叫next()，控制權會被傳到你的函式，接著重新導向到原始位置或options.successRedirect，如果redirect查詢字串參數沒有指定的話。
+
+Top：省略redirect查詢字串參數可以簡化你的驗證路由，如果你只有一個URL需要驗證的話。啟用這功能回到原本需要登入的網頁，而不是預設的網頁，這就是一個讓人滿意的使用者體驗。
+
+在這過程中，Passport施展的"魔法"是將使用者(在我們案例中，只是一個MongoDB資料庫的使用者ID)存到期程。因瀏覽器在重新導向，就是一個不同的HTTP請求：如果期程沒有那個資訊，我們將無法知道使用者已經被驗證!成功驗證使用者之後，設定req.session.passport.user，這就是未來的請求知道使用者已被驗證的地方。
+
+我們來看/account處理程式如何檢查並確保使用者已被驗證：
+
+```
+app.get('/account', function (req, res) {
+    if (!req.session.passport.user)
+        return res.redirect(303, '/unauthorized');
+    res.render('account');
+});
+```
+現在不但通過驗證的使用者會看到帳號網頁，其他人也會被重新導向"未獲授權"網頁。
+
+### 角色授權
+
+目前我們還沒在技術上做任何授權，假設我們只想讓客戶看到他們的帳號視圖，員工可看到使用者帳號資訊。
+
+建立一個customerOnly函式，只供客戶使用：
+
+```
+function customerOnly(req, res, next) {
+    var user = req.session.passport.user;
+    if (user && user.role === 'customer') return next();
+    res.redirect(303, '/unauthorized');
+}
+```
+
+再來建立一個employee函式。
+
+```
+function employeeOnly(req, res, next) {
+    var user = req.session.passport.user;
+    if (user && user.role === 'employee') return next();
+    next('route');
+}
+```
+
+呼叫next('route')不會執行路由中的下一個處理程式：它會完全跳過這個路由。假設沒有其他路由會處理/account，它最終會傳遞到404處理程式，讓我們有一個滿意的結果。
+
+```
+app.get('/account', customerOnly, function(req, res){
+    res.render('account');
+});
+app.get('/account/order-history', customerOnly, function(req, res){
+    res.render('account/order-history');
+});
+app.get('/account/email-prefs', customerOnly, function(req, res){
+    res.render('account/email-prefs');
+});
+
+// 員工路由
+app.get('/sales', employeeOnly, function(req, res){
+    res.render('sales');
+});
+```
+
+有多角色的話：
+
+```
+function allow(roles) {
+    return function (req, res, next) {
+        var user = req.session.passport.user;
+        if (user && roles.split(',').indexOf(user.role) !== -1) return next();
+        res.redirect(303, '/unauthorized');
+    };
+}
+
+app.get('/account', allow('customer,employee'), function(req, res){
+    res.render('account');
+});
+```

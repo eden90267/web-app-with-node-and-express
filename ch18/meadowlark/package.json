@@ -28,6 +28,8 @@
     "mongoose": "^4.10.5",
     "morgan": "^1.8.2",
     "nodemailer": "^4.0.1",
+    "passport": "^0.3.2",
+    "passport-facebook": "^2.1.1",
     "underscore": "^1.8.3",
     "vhost": "^3.0.2"
   },

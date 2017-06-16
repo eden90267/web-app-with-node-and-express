@@ -360,6 +360,74 @@ rest.get('/attraction/:id', function (req, content, cb) {
 // 將API連結到管道
 app.use(vhost('api.*', rest.processRequest()));
 
+
+// authentication
+var auth = require('./lib/auth')(app, {
+    baseUrl: process.env.BASE_URL,
+    providers: credentials.authProviders,
+    successRedirect: '/account',
+    failureRedirect: '/unauthorized',
+});
+// auth.init()將Passport中介軟體連結起來
+auth.init();
+
+// 現在我們可以指定驗證路由
+auth.registerRoutes();
+
+
+function customerOnly(req, res, next) {
+    var user = req.session.passport.user;
+    if (user && user.role === 'customer') return next();
+    res.redirect(303, '/unauthorized');
+}
+
+function employeeOnly(req, res, next) {
+    var user = req.session.passport.user;
+    if (user && user.role === 'employee') return next();
+    next('route');
+}
+
+function allow(roles) {
+    return function (req, res, next) {
+        var user = req.session.passport.user;
+        if (user && roles.split(',').indexOf(user.role) !== -1) return next();
+        res.redirect(303, '/unauthorized');
+    };
+}
+
+// 客戶路由
+app.get('/account', allow('customer,employee'), function(req, res){
+    res.render('account');
+});
+app.get('/account/order-history', customerOnly, function(req, res){
+    res.render('account/order-history');
+});
+app.get('/account/email-prefs', customerOnly, function(req, res){
+    res.render('account/email-prefs');
+});
+
+// 員工路由
+app.get('/sales', employeeOnly, function(req, res){
+    res.render('sales');
+});
+
+
+
+// customer routes
+
+app.get('/account', function (req, res) {
+    if (!req.session.passport.user)
+        return res.redirect(303, '/unauthorized');
+    res.render('account');
+});
+
+
+
+
+
+
+
+
 var autoViews = {};
 var fs = require('fs');
 
