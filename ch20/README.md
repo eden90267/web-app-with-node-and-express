@@ -45,3 +45,30 @@ Node除錯程式會建立它自己的Web伺服器來工作，可讓你控制被�
 ## Node Inspector
 
 Node透過Web服務來公開它的除錯控制項，讓你有其他的選擇。特別是Danny Coates傑出的Node Inspector(現由StrongLoop管理)可讓你使用在用戶端除錯JavaScript程式的介面來除錯Node應用程式。
+
+Node Inspector使用Chromium專案的Blink引擎，它也是Chrome的引擎。
+
+```
+sudo npm install -g node-inspector
+```
+
+接著背景執行它：
+
+```
+node-inspector&
+```
+
+接著你可以在除錯模式下啟動：
+
+```
+node --debug meadowlark
+```
+
+你有三個不同的應用程式在三個不同埠上執行
+
+- 5858：你的app在5858埠公開它的除錯介面
+- 8080：Node Inspector在8080埠執行，監聽5858
+
+連結[http://127.0.0.1:8080/debug?port=5858](http://127.0.0.1:8080/debug?port=5858)，一探究竟。
+
+最簡單使用方式：Sources選單設定**中斷點**。
