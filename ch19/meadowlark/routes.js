@@ -6,7 +6,8 @@ var main = require('./handlers/main'),
     contest = require('./handlers/contest'),
     vacation = require('./handlers/vacation'),
     cartValidation = require('./lib/cartValidation'),
-    cart = require('./handlers/cart');
+    cart = require('./handlers/cart'),
+    dealers = require('./handlers/dealers');
 
 module.exports = function (app) {
 
@@ -44,4 +45,7 @@ module.exports = function (app) {
     app.get('/jquerytest', sample.jqueryTest);
     app.get('/nursery-rhyme', sample.nurseryRhyme);
     app.get('/data/nursery-rhyme', sample.nurseryRhymeData);
+
+    // dealers
+    app.get('/dealers', dealers.home);
 };

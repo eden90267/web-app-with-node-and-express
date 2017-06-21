@@ -312,6 +312,13 @@ function getTopTweets(cb) {
         });
     });
 }
+// mmiddleware to add top tweets to context
+// app.use(function(req, res, next) {
+//     getTopTweets(function(tweets) {
+//         res.locals.topTweets = tweets;
+//         next();
+//     });
+// });
 
 // initialize dealers
 Dealer.find({}, function (err, dealers) {

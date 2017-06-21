@@ -3,7 +3,7 @@ module.exports = {
 
         clientJavaScript: {
             main: {
-                file: '/js/meadowlark.min.62a6f623.js',
+                file: '/js/meadowlark.min.6dfde63e.js',
                 location: 'head',
                 contents: [
                     '/js/contact.js',
@@ -14,7 +14,7 @@ module.exports = {
 
         clientCss: {
             main: {
-                file: '/css/meadowlark.min.d115d0fe.css',
+                file: '/css/meadowlark.min.db14011e.css',
                 contents: [
                     '/css/main.css',
                     '/css/cart.css',
