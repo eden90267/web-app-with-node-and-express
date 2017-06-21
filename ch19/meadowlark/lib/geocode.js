@@ -1,9 +1,10 @@
 var http = require('http');
 
 module.exports = function (query, cb) {
+    var ecUri = encodeURIComponent(query);
     var options = {
-        hostname: 'map.googleapis.com',
-        path: '/maps/api/geocode/json?address=' + encodeURIComponent(query) + '&sensor=false',
+        hostname: 'maps.googleapis.com',
+        path: '/maps/api/geocode/json?address=' + ecUri + '&sensor=false',
     };
     http.request(options, function (res) {
         var data = '';

@@ -319,7 +319,7 @@ dealerCache.jsonFile = __dirname + '/public' + dealerCache.jsonUrl;
 建立一個協助函式，將給定的Dealer模型地理編碼，並將結果存到資料庫。注意，如果目前的經銷商地址符合最後被地裡編碼的那一筆，我們就不會在任何事情並返回。因此，如果經銷商的座標是最新狀態，這個編碼會非常快速：
 
 ```
-function geocodeDealer(dealer) {
+function geocodeDealer(dealer, deferred) {
     var addr = dealer.getAddress(' ');
     if (addr === dealer.geocodedAddress) return; // 已經完成地理編碼
 
@@ -331,6 +331,7 @@ function geocodeDealer(dealer) {
         } else {
             // 現在我們已經無法將它地理編碼了
             // 我們已經超過使用限制了
+            deferred.resolve();
             return;
         }
     }
@@ -341,6 +342,7 @@ function geocodeDealer(dealer) {
         dealer.lng = coords.lng;
         dealer.geocodedAddress = addr;
         dealer.save();
+        deferred.resolve();
     });
 }
 ```
@@ -356,15 +358,23 @@ dealerCache.refresh = function (cb) {
             if (err) return console.log('Error fetching dealers: ' + err);
 
             // 如果座標是最新狀態，geocodeDealer將什麼也不做
-            dealers.forEach(geocodeDealer);
+            var promises = [];
+            dealers.forEach(function(dealer) {
+                var deferred = Q.defer();
+                geocodeDealer(dealer, deferred);
+                promises.push(deferred);
+            });
+            Q.all(promises).then(function () {
+                // 現在將所有經銷商寫到我們緩存的JSON檔
+                fs.writeFileSync(dealerCache.jsonFile, JSON.stringify(dealers));
 
-            // 現在將所有經銷商寫到我們緩存的JSON檔
-            fs.writeFileSync(dealerCache.jsonFile, JSON.stringify(dealers));
+                fs.writeFileSync(__dirname + '/public/js/dealers-googleMapMarkers.js', dealersToGoogleMaps(dealers));
 
-            dealerCache.lastRefreshed = Date.now();
+                dealerCache.lastRefreshed = Date.now();
 
-            // 全部完成，呼叫回呼
-            cb();
+                // 全部完成，呼叫回呼
+                cb();
+            });
         });
     }
 

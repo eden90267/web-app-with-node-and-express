@@ -402,7 +402,7 @@ var dealerCache = {
 };
 dealerCache.jsonFile = __dirname + '/public' + dealerCache.jsonUrl;
 
-function geocodeDealer(dealer) {
+function geocodeDealer(dealer, deferred) {
     var addr = dealer.getAddress(' ');
     if (addr === dealer.geocodedAddress) return; // 已經完成地理編碼
 
@@ -414,6 +414,7 @@ function geocodeDealer(dealer) {
         } else {
             // 現在我們已經無法將它地理編碼了
             // 我們已經超過使用限制了
+            deferred.resolve();
             return;
         }
     }
@@ -424,6 +425,7 @@ function geocodeDealer(dealer) {
         dealer.lng = coords.lng;
         dealer.geocodedAddress = addr;
         dealer.save();
+        deferred.resolve();
     });
 }
 
@@ -435,17 +437,23 @@ dealerCache.refresh = function (cb) {
             if (err) return console.log('Error fetching dealers: ' + err);
 
             // 如果座標是最新狀態，geocodeDealer將什麼也不做
-            dealers.forEach(geocodeDealer);
+            var promises = [];
+            dealers.forEach(function(dealer) {
+                var deferred = Q.defer();
+                geocodeDealer(dealer, deferred);
+                promises.push(deferred);
+            });
+            Q.all(promises).then(function () {
+                // 現在將所有經銷商寫到我們緩存的JSON檔
+                fs.writeFileSync(dealerCache.jsonFile, JSON.stringify(dealers));
 
-            // 現在將所有經銷商寫到我們緩存的JSON檔
-            fs.writeFileSync(dealerCache.jsonFile, JSON.stringify(dealers));
+                fs.writeFileSync(__dirname + '/public/js/dealers-googleMapMarkers.js', dealersToGoogleMaps(dealers));
 
-            fs.writeFileSync(__dirname + '/public/js/dealers-googleMapMarkers.js', dealersToGoogleMaps(dealers));
+                dealerCache.lastRefreshed = Date.now();
 
-            dealerCache.lastRefreshed = Date.now();
-
-            // 全部完成，呼叫回呼
-            cb();
+                // 全部完成，呼叫回呼
+                cb();
+            });
         });
     }
 
@@ -454,7 +462,8 @@ dealerCache.refresh = function (cb) {
 function refreshDealerCacheForever() {
     dealerCache.refresh(function () {
         // 在重新整理間隔之後呼叫自己
-        setTimeout(refreshDealerCacheForever, dealerCache.refreshInterval);
+        setTimeout(refreshDealerCacheForever,
+            dealerCache.refreshInterval);
     });
 }
 
