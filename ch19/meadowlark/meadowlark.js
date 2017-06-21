@@ -10,7 +10,8 @@ var https = require('https'),
     Q = require('q');
 
 var credentials = require('./credentials'),
-    Vacation = require('./models/vacation');
+    Vacation = require('./models/vacation'),
+    Dealer = require('./models/dealer');
 
 var twitter = require('./lib/twitter')({
     consumerKey: credentials.twitter.consumerKey,
@@ -293,9 +294,79 @@ function getTopTweets(cb) {
     });
 }
 
-twitter.search('#meadowlarktravel', 10, function (result) {
-    // 推文會在result.statuses裡面
+// initialize dealers
+Dealer.find({}, function(err, dealers){
+    if(dealers.length) return;
+
+    new Dealer({
+        name: 'Oregon Novelties',
+        address1: '912 NW Davis St',
+        city: 'Portland',
+        state: 'OR',
+        zip: '97209',
+        country: 'US',
+        phone: '503-555-1212',
+        active: true,
+    }).save();
+
+    new Dealer({
+        name: 'Bruce\'s Bric-a-Brac',
+        address1: '159 Beeswax Ln',
+        city: 'Manzanita',
+        state: 'OR',
+        zip: '97209',
+        country: 'US',
+        phone: '503-555-1212',
+        active: true,
+    }).save();
+
+    new Dealer({
+        name: 'Aunt Beru\'s Oregon Souveniers',
+        address1: '544 NE Emerson Ave',
+        city: 'Bend',
+        state: 'OR',
+        zip: '97701',
+        country: 'US',
+        phone: '503-555-1212',
+        active: true,
+    }).save();
+
+    new Dealer({
+        name: 'Oregon Goodies',
+        address1: '1353 NW Beca Ave',
+        city: 'Corvallis',
+        state: 'OR',
+        zip: '97330',
+        country: 'US',
+        phone: '503-555-1212',
+        active: true,
+    }).save();
+
+    new Dealer({
+        name: 'Oregon Grab-n-Fly',
+        address1: '7000 NE Airport Way',
+        city: 'Portland',
+        state: 'OR',
+        zip: '97219',
+        country: 'US',
+        phone: '503-555-1212',
+        active: true,
+    }).save();
 });
+
+var dealerCache = {
+    lastRefreshed: 0,
+    refreshInterval: 60 * 60 * 1000,
+    jsonUrl: '/dealers.json',
+    geocodeLimit: 2000,
+    geocodeCount: 0,
+    geocodeBegin: 0,
+};
+dealerCache.jsonFile = __dirname + '/public' + dealerCache.jsonUrl;
+
+function geocodeDealer(dealer) {
+    var addr = dealer.getAddress('');
+}
 
 
 var static = require('./lib/static').map;

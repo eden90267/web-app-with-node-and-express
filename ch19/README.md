@@ -305,5 +305,19 @@ module.exports = Dealer;
 建立快取：
 
 ```
-v
+var dealerCache = {
+    lastRefreshed: 0,
+    refreshInterval: 60 * 60 * 1000,
+    jsonUrl: '/dealers.json',
+    geocodeLimit: 2000,
+    geocodeCount: 0,
+    geocodeBegin: 0,
+};
+dealerCache.jsonFile = __dirname + '/public' + dealerCache.jsonUrl;
+```
+
+建立一個協助函式，將給定的Dealer模型地理編碼，並將結果存到資料庫。注意，如果目前的經銷商地址符合最後被地裡編碼的那一筆，我們就不會在任何事情並返回。因此，如果經銷商的座標是最新狀態，這個編碼會非常快速：
+
+```
+
 ```
