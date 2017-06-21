@@ -1,0 +1,58 @@
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyD6NvDFBVE6qXlRh58Z72g_2yiMal5qpoI&callback=initMap&sensor=false"
+        type="text/javascript"></script>
+<script src="//cdnjs.cloudflare.com/ajax/libs/handlebars.js/1.3.0/handlebars.min.js"></script>
+
+<script id="dealerTemplate" type="text/x-handlebars-template">
+    \{{#each dealers}}
+        <div class="dealer">
+            <h3>\{{name}}</h3>
+            \{{address1}}<br>
+            \{{#if address2}}
+                \{{address2}}<br>
+            \{{/if}}
+            \{{city}}, \{{state}} \{{zip}}<br>
+            \{{#if country}}\{{country}}<br>\{{/if}}
+            \{{#if}}\{{phone}}<br>\{{/if}}
+            \{{#if website}}<a href="\{{website\}}">\{{website}}</a><br>\{{/if}}
+        </div>
+    \{{/each}}
+</script>
+
+<script>
+    var map;
+    var dealerTemplate = Handlebars.compile($('#dealerTemplate').html());
+    $(document).ready(function () {
+
+        // 將US放到地圖中央，設定縮放比率，以顯示整個國家
+        var mapOptions = {
+            center: new google.maps.LatLng(38.2562, -96.0650),
+            zoom: 4,
+        };
+
+        // 初始化地圖
+        map = new google.maps.Map(document.getElementById('map'), mapOptions);
+
+        // 擷取 JSON
+        $.getJSON('/dealers.json', function (dealers) {
+            dealers.forEach(function (dealer) {
+                // 跳過所有沒有地理編碼的經銷商
+                if (!dealer.lat || !dealer.lng) return;
+                var pos = new google.maps.LatLng(dealer.lat, dealer.lng);
+                var marker = new google.maps.Marker({
+                    position: pos,
+                    map: map,
+                    title: dealer.name
+                });
+            });
+
+            // 使用Handlebars來更新經銷商名單
+            $('#dealerList').html(dealerTemplate({dealers: dealers}));
+        });
+
+    })
+</script>
+
+<div class="dealers">
+    <div class="map"></div>
+    <div class="dealerList"></div>
+</div>

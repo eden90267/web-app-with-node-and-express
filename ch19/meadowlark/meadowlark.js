@@ -7,6 +7,7 @@ var https = require('https'),
     mongoose = require('mongoose'),
     vhost = require('vhost'),
     jqupload = require('jquery-file-upload-middleware'),
+    fs = require('fs'),
     Q = require('q');
 
 var credentials = require('./credentials'),
@@ -365,9 +366,63 @@ var dealerCache = {
 dealerCache.jsonFile = __dirname + '/public' + dealerCache.jsonUrl;
 
 function geocodeDealer(dealer) {
-    var addr = dealer.getAddress('');
+    var addr = dealer.getAddress(' ');
+    if (addr === dealer.geocodedAddress) return; // 已經完成地理編碼
+
+    if (dealerCache.geocodeCount >= dealerCache.geocodeLimit) {
+        // 最後一次地理編碼是在24小時之前嗎?
+        if (Date.now() > dealerCache.geocodeBegin + 24 * 60 * 60 * 1000) {
+            dealerCache.geocodeBegin = Date.now();
+            dealerCache.geocodeCount = 0;
+        } else {
+            // 現在我們已經無法將它地理編碼了
+            // 我們已經超過使用限制了
+            return;
+        }
+
+        require('./lib/geocode')(addr, function (err, coords) {
+            if (err) return console.log('Geocoding failure for ' + addr);
+            dealer.lat = coords.lat;
+            dealer.lng = coords.lng;
+            dealer.geocodedAddress = addr;
+            dealer.save();
+        });
+    }
 }
 
+dealerCache.refresh = function (cb) {
+
+    if (Date.now() > dealerCache.lastRefreshed + dealerCache.refreshInterval) {
+        // 我們需要重新整理快取
+        Dealer.find({active: true}, function (err, dealers) {
+            if (err) return console.log('Error fetching dealers: ' + err);
+
+            // 如果座標是最新狀態，geocodeDealer將什麼也不做
+            dealers.forEach(geocodeDealer);
+
+            // 現在將所有經銷商寫到我們緩存的JSON檔
+            fs.writeFileSync(dealerCache.jsonFile, JSON.stringify(dealers));
+
+            dealerCache.lastRefreshed = Date.now();
+
+            // 全部完成，呼叫回呼
+            cb();
+        });
+    }
+
+};
+
+function refreshDealerCacheForever() {
+    dealerCache.refresh(function () {
+        // 在重新整理間隔之後呼叫自己
+        setTimeout(refreshDealerCacheForever, dealerCache.refreshInterval);
+    });
+}
+
+// 如果快取不存在，建立一個空的，以防止404錯誤
+if (!fs.existsSync(dealerCache.jsonFile)) fs.writeFileSync(JSON.stringify([]));
+// 開始重新整理快取
+refreshDealerCacheForever();
 
 var static = require('./lib/static').map;
 app.use(function (req, res, next) {
@@ -525,7 +580,6 @@ app.get('/sales', employeeOnly, function (req, res) {
 
 
 var autoViews = {};
-var fs = require('fs');
 
 app.use(function (req, res, next) {
     var path = req.path.toLowerCase();

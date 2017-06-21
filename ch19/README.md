@@ -319,5 +319,150 @@ dealerCache.jsonFile = __dirname + '/public' + dealerCache.jsonUrl;
 建立一個協助函式，將給定的Dealer模型地理編碼，並將結果存到資料庫。注意，如果目前的經銷商地址符合最後被地裡編碼的那一筆，我們就不會在任何事情並返回。因此，如果經銷商的座標是最新狀態，這個編碼會非常快速：
 
 ```
+function geocodeDealer(dealer) {
+    var addr = dealer.getAddress(' ');
+    if (addr === dealer.geocodedAddress) return; // 已經完成地理編碼
+
+    if (dealerCache.geocodeCount >= dealerCache.geocodeLimit) {
+        // 最後一次地理編碼是在24小時之前嗎?
+        if (Date.now() > dealerCache.geocodeBegin + 24 * 60 * 60 * 1000) {
+            dealerCache.geocodeBegin = Date.now();
+            dealerCache.geocodeCount = 0;
+        } else {
+            // 現在我們已經無法將它地理編碼了
+            // 我們已經超過使用限制了
+            return;
+        }
+
+        require('./lib/geocode')(addr, function (err, coords) {
+            if (err) return console.log('Geocoding failure for ' + addr);
+            dealer.lat = coords.lat;
+            dealer.lng = coords.lng;
+            dealer.geocodedAddress = addr;
+            dealer.save();
+        });
+    }
+}
+```
+
+現在我們可以建立一個函式來重新整理經銷商快取。這項操作很費時間(特別是第一次時候)，但我們會在幾秒內做完。
 
 ```
+dealerCache.refresh = function (cb) {
+
+    if (Date.now() > dealerCache.lastRefreshed + dealerCache.refreshInterval) {
+        // 我們需要重新整理快取
+        Dealer.find({active: true}, function (err, dealers) {
+            if (err) return console.log('Error fetching dealers: ' + err);
+
+            // 如果座標是最新狀態，geocodeDealer將什麼也不做
+            dealers.forEach(geocodeDealer);
+
+            // 現在將所有經銷商寫到我們緩存的JSON檔
+            fs.writeFileSync(dealerCache.jsonFile, JSON.stringify(dealers));
+
+            dealerCache.lastRefreshed = Date.now();
+
+            // 全部完成，呼叫回呼
+            cb();
+        });
+    }
+
+};
+```
+
+最後，我們需要定期讓快取處在最新狀態。我們可使用setInterval，但如果有很多經銷商改變地址，很有可能它會花費超過一個小時的時間來重新整理快取。所以當一次重新整理完成時，我們讓它使用setTimeout，在再次重新整理快取之前等待一個小時:
+
+```
+function refreshDealerCacheForever() {
+    dealerCache.refresh(function () {
+        // 在重新整理間隔之後呼叫自己
+        setTimeout(refreshDealerCacheForever, dealerCache.refreshInterval);
+    });
+}
+```
+
+```
+// 如果快取不存在，建立一個空的，以防止404錯誤
+if (!fs.existsSync(dealerCache.jsonFile)) fs.writeFileSync(JSON.stringify([]));
+// 開始重新整理快取
+refreshDealerCacheForever();
+```
+
+### 顯示地圖
+
+網頁上使用互動式的Google地圖時需要API金鑰: [https://developers.google.com/maps/documentation/javascript/get-api-key](https://developers.google.com/maps/documentation/javascript/get-api-key)。
+
+首先添加CSS樣式:
+
+```
+.dealers #map {
+  width: 100%;
+  height: 400px;
+}
+```
+
+`views/dealers.handlebars`：
+
+```
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyD6NvDFBVE6qXlRh58Z72g_2yiMal5qpoI&callback=initMap&sensor=false"
+        type="text/javascript"></script>
+<script src="//cdnjs.cloudflare.com/ajax/libs/handlebars.js/1.3.0/handlebars.min.js"></script>
+
+<script id="dealerTemplate" type="text/x-handlebars-template">
+    \{{#each dealers}}
+        <div class="dealer">
+            <h3>\{{name}}</h3>
+            \{{address1}}<br>
+            \{{#if address2}}
+                \{{address2}}<br>
+            \{{/if}}
+            \{{city}}, \{{state}} \{{zip}}<br>
+            \{{#if country}}\{{country}}<br>\{{/if}}
+            \{{#if}}\{{phone}}<br>\{{/if}}
+            \{{#if website}}<a href="\{{website\}}">\{{website}}</a><br>\{{/if}}
+        </div>
+    \{{/each}}
+</script>
+
+<script>
+    var map;
+    var dealerTemplate = Handlebars.compile($('#dealerTemplate').html());
+    $(document).ready(function () {
+
+        // 將US放到地圖中央，設定縮放比率，以顯示整個國家
+        var mapOptions = {
+            center: new google.maps.LatLng(38.2562, -96.0650),
+            zoom: 4,
+        };
+
+        // 初始化地圖
+        map = new google.maps.Map(document.getElementById('map'), mapOptions);
+
+        // 擷取 JSON
+        $.getJSON('/dealers.json', function (dealers) {
+            dealers.forEach(function (dealer) {
+                // 跳過所有沒有地理編碼的經銷商
+                if (!dealer.lat || !dealer.lng) return;
+                var pos = new google.maps.LatLng(dealer.lat, dealer.lng);
+                var marker = new google.maps.Marker({
+                    position: pos,
+                    map: map,
+                    title: dealer.name
+                });
+            });
+
+            // 使用Handlebars來更新經銷商名單
+            $('#dealerList').html(dealerTemplate({dealers: dealers}));
+        });
+
+    })
+</script>
+
+<div class="dealers">
+    <div class="map"></div>
+    <div class="dealerList"></div>
+</div>
+```
+
+想在用戶端使用Handlebars，必須將一開始的大括號用反斜線轉譯，以避免Handlebars試著在後端轉譯模板。
