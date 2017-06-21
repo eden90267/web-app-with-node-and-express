@@ -231,34 +231,52 @@ app.use(function (req, res, next) {
     next();
 });
 
-// mocked weather data
-function getWeatherData() {
-    return {
+var getWeatherData = (function () {
+    // 我們的氣象快取
+    var c = {
+        refreshed: 0,
+        refreshing: false,
+        updateFrequency: 360000, // 一小時
         locations: [
-            {
-                name: 'Portland',
-                forecastUrl: 'http://www.wunderground.com/US/OR/Portland.html',
-                iconUrl: 'http://icons-ak.wxug.com/i/c/k/cloudy.gif',
-                weather: 'Overcast',
-                temp: '54.1 F (12.3 C)',
-            },
-            {
-                name: 'Bend',
-                forecastUrl: 'http://www.wunderground.com/US/OR/Bend.html',
-                iconUrl: 'http://icons-ak.wxug.com/i/c/k/partlycloudy.gif',
-                weather: 'Partly Cloudy',
-                temp: '55.0 F (12.8 C)',
-            },
-            {
-                name: 'Manzanita',
-                forecastUrl: 'http://www.wunderground.com/US/OR/Manzanita.html',
-                iconUrl: 'http://icons-ak.wxug.com/i/c/k/rain.gif',
-                weather: 'Light Rain',
-                temp: '55.0 F (12.8 C)',
-            },
-        ],
+            {name: 'Portland'},
+            {name: 'Bend'},
+            {name: 'Manzanita'},
+        ]
     };
-}
+    return function () {
+        if (!c.refreshing && Date.now() > c.refreshed + c.updateFrequency) {
+            c.refreshed = true;
+            var promises = [];
+            c.locations.forEach(function (loc) {
+                var deferred = Q.defer();
+                var url = 'https://api.wunderground.com/api/' + credentials.WeatherUnderground.ApiKey +
+                    '/conditions/q/OR/' + loc.name + '.json';
+                https.get(url, function (res) {
+                    var body = '';
+                    res.on('data', function (chunk) {
+                        body += chunk;
+                    });
+                    res.on('end', function () {
+                        body = JSON.parse(body);
+                        loc.forecastUrl = body.current_observation.forecast_url;
+                        loc.iconUrl = body.current_observation.icon_url;
+                        loc.weather = body.current_observation.weather;
+                        loc.temp = body.current_observation.temperature_string;
+                        deferred.resolve();
+                    });
+                });
+                promises.push(deferred);
+            });
+            Q.all(promises).then(function () {
+                c.refreshing = false;
+                c.refreshed = Date.now();
+            });
+        }
+        return {locations: c.locations};
+    };
+})();
+// 初始化氣象快取
+getWeatherData();
 
 app.use(function (req, res, next) {
     if (!res.locals.partials) res.locals.partials = {};
@@ -296,8 +314,8 @@ function getTopTweets(cb) {
 }
 
 // initialize dealers
-Dealer.find({}, function(err, dealers){
-    if(dealers.length) return;
+Dealer.find({}, function (err, dealers) {
+    if (dealers.length) return;
 
     new Dealer({
         name: 'Oregon Novelties',
@@ -355,6 +373,25 @@ Dealer.find({}, function(err, dealers){
     }).save();
 });
 
+function dealersToGoogleMaps(dealers) {
+    var js = 'function addMarkers(map){\n' +
+        'var markers = [];\n' +
+        'var Marker = google.maps.Marker;\n' +
+        'var LatLng = google.maps.LatLng;\n';
+    dealers.forEach(function (d) {
+        var name = d.name.replace(/'/, '\\\'')
+            .replace(/\\/, '\\\\');
+        js += 'markers.push(new Marker({\n' +
+            '\tposition: new LatLng(' +
+            d.lat + ', ' + d.lng + '),\n' +
+            '\tmap: map,\n' +
+            '\ttitle: \'' + name.replace(/'/, '\\') + '\',\n' +
+            '}));\n';
+    });
+    js += '}';
+    return js;
+}
+
 var dealerCache = {
     lastRefreshed: 0,
     refreshInterval: 60 * 60 * 1000,
@@ -379,15 +416,15 @@ function geocodeDealer(dealer) {
             // 我們已經超過使用限制了
             return;
         }
-
-        require('./lib/geocode')(addr, function (err, coords) {
-            if (err) return console.log('Geocoding failure for ' + addr);
-            dealer.lat = coords.lat;
-            dealer.lng = coords.lng;
-            dealer.geocodedAddress = addr;
-            dealer.save();
-        });
     }
+
+    require('./lib/geocode')(addr, function (err, coords) {
+        if (err) return console.log('Geocoding failure for ' + addr);
+        dealer.lat = coords.lat;
+        dealer.lng = coords.lng;
+        dealer.geocodedAddress = addr;
+        dealer.save();
+    });
 }
 
 dealerCache.refresh = function (cb) {
@@ -402,6 +439,8 @@ dealerCache.refresh = function (cb) {
 
             // 現在將所有經銷商寫到我們緩存的JSON檔
             fs.writeFileSync(dealerCache.jsonFile, JSON.stringify(dealers));
+
+            fs.writeFileSync(__dirname + '/public/js/dealers-googleMapMarkers.js', dealersToGoogleMaps(dealers));
 
             dealerCache.lastRefreshed = Date.now();
 
@@ -560,7 +599,7 @@ function allow(roles) {
 
 app.get('/unauthorized', function (req, res) {
     res.status(403).render('unauthorized');
-})
+});
 
 // 客戶路由
 app.get('/account', allow('customer,employee'), function (req, res) {

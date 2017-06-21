@@ -333,15 +333,15 @@ function geocodeDealer(dealer) {
             // 我們已經超過使用限制了
             return;
         }
-
-        require('./lib/geocode')(addr, function (err, coords) {
-            if (err) return console.log('Geocoding failure for ' + addr);
-            dealer.lat = coords.lat;
-            dealer.lng = coords.lng;
-            dealer.geocodedAddress = addr;
-            dealer.save();
-        });
     }
+
+    require('./lib/geocode')(addr, function (err, coords) {
+        if (err) return console.log('Geocoding failure for ' + addr);
+        dealer.lat = coords.lat;
+        dealer.lng = coords.lng;
+        dealer.geocodedAddress = addr;
+        dealer.save();
+    });
 }
 ```
 
@@ -466,3 +466,172 @@ refreshDealerCacheForever();
 ```
 
 想在用戶端使用Handlebars，必須將一開始的大括號用反斜線轉譯，以避免Handlebars試著在後端轉譯模板。
+
+### 提高用戶端性能
+
+如果你有上百個或更多標記要顯示，我們可在顯示時多擠出一點效能。目前我們是解析JSON並迭代它：我們可跳過這步驟。
+
+在伺服器端，我們可直接發出JavaScript，以取代(或同時)發出經銷商的JSON。
+
+```
+function dealersToGoogleMaps(dealers){
+    var js = 'function addMarkers(map){\n' +
+        'var markers = [];\n' +
+        'var Marker = google.maps.Marker;\n' +
+        'var LatLng = google.maps.LatLng;\n';
+    dealers.forEach(function(d){
+        var name = d.name.replace(/'/, '\\\'')
+            .replace(/\\/, '\\\\');
+        js += 'markers.push(new Marker({\n' +
+            '\tposition: new LatLng(' +
+            d.lat + ', ' + d.lng + '),\n' +
+            '\tmap: map,\n' +
+            '\ttitle: \'' + name.replace(/'/, '\\') + '\',\n' +
+            '}));\n';
+    });
+    js += '}';
+    return js;
+}
+
+// ...
+
+dealerCache.refresh = function (cb) {
+
+    if (Date.now() > dealerCache.lastRefreshed + dealerCache.refreshInterval) {
+        // 我們需要重新整理快取
+        Dealer.find({active: true}, function (err, dealers) {
+            if (err) return console.log('Error fetching dealers: ' + err);
+
+            // 如果座標是最新狀態，geocodeDealer將什麼也不做
+            dealers.forEach(geocodeDealer);
+
+            // 現在將所有經銷商寫到我們緩存的JSON檔
+            fs.writeFileSync(dealerCache.jsonFile, JSON.stringify(dealers));
+
+            fs.writeFileSync(__dirname + '/public/js/dealers-googleMapMarkers.js', dealersToGoogleMaps(dealers));
+
+            dealerCache.lastRefreshed = Date.now();
+
+            // 全部完成，呼叫回呼
+            cb();
+        });
+    }
+
+};
+```
+
+```
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyD6NvDFBVE6qXlRh58Z72g_2yiMal5qpoI&sensor=false"
+        type="text/javascript"></script>
+<script src="//cdnjs.cloudflare.com/ajax/libs/handlebars.js/1.3.0/handlebars.js"></script>
+
+<script id="dealerTemplate" type="text/x-handlebars-template">
+    \{{#each dealers}}
+    <div class="dealer">
+        <h3>\{{name}}</h3>
+        \{{address1}}<br>
+        \{{#if address2}}
+        \{{address2}}<br>
+        \{{/if}}
+        \{{city}}, \{{state}} \{{zip}}<br>
+        \{{#if country}}\{{country}}<br>\{{/if}}
+        \{{#if phone}}\{{phone}}<br>\{{/if}}
+        \{{#if website}}<a href="\{{website}}">\{{website}}</a><br>\{{/if}}
+    </div>
+    \{{/each}}
+</script>
+
+<div class="dealers">
+    <div id="map"></div>
+    <div id="dealerList"></div>
+</div>
+{{#section 'jquery'}}
+    <script src="{{static '/js/dealers-googleMapMarkers.js'}}"></script>
+    <script>
+        var map;
+        var dealerTemplate = Handlebars.compile($('#dealerTemplate').html());
+        $(document).ready(function () {
+
+            // 將US放到地圖中央，設定縮放比率，以顯示整個國家
+            var mapOptions = {
+                center: new google.maps.LatLng(38.2562, -96.0650),
+                zoom: 4,
+            };
+
+            // 初始化地圖
+            map = new google.maps.Map(document.getElementById('map'), mapOptions);
+            addMarkers(map);
+
+            // 擷取 JSON
+            $.getJSON('/dealers.json', function (dealers) {
+                // 使用Handlebars來更新經銷商名單
+                $('#dealerList').html(dealerTemplate({dealers: dealers}));
+            });
+
+        })
+    </script>
+{{/section}}
+```
+
+這方法的缺點是，它目前是與Google Maps這個選擇整合在一起，如果我們想要改用Bing，就必須重新編寫伺服器端的JavaScript生成。想要更高的速度，就使用這個方法。
+
+## 氣象資料
+
+使用Weather Underground的免費API來取得在地氣象資料。你需要在[https://www.wunderground.com/weather/api/](https://www.wunderground.com/weather/api/)建立一個免費的帳號。
+
+將getWeatherData函式換成以下程式：
+
+```
+ar getWeatherData = (function () {
+    // 我們的氣象快取
+    var c = {
+        refreshed: 0,
+        refreshing: false,
+        updateFrequency: 360000, // 一小時
+        locations: [
+            {name: 'Portland'},
+            {name: 'Bend'},
+            {name: 'Manzanita'},
+        ]
+    };
+    return function () {
+        if (!c.refreshing && Date.now() > c.refreshed + c.updateFrequency) {
+            c.refreshed = true;
+            var promises = [];
+            c.locations.forEach(function (loc) {
+                var deferred = Q.defer();
+                var url = 'https://api.wunderground.com/api/' + credentials.WeatherUnderground.ApiKey +
+                    '/conditions/q/OR/' + loc.name + '.json';
+                https.get(url, function (res) {
+                    var body = '';
+                    res.on('data', function (chunk) {
+                        body += chunk;
+                    });
+                    res.on('end', function () {
+                        body = JSON.parse(body);
+                        loc.forecastUrl = body.current_observation.forecast_url;
+                        loc.iconUrl = body.current_observation.icon_url;
+                        loc.weather = body.current_observation.weather;
+                        loc.temp = body.current_observation.temperature_string;
+                        deferred.resolve();
+                    });
+                });
+                promises.push(deferred);
+            });
+            Q.all(promises).then(function () {
+                c.refreshing = false;
+                c.refreshed = Date.now();
+            });
+        }
+        return {locations: c.locations};
+    };
+})();
+// 初始化氣象快取
+getWeatherData();
+```
+
+也可將緩存資料放在資料庫，如此一來可讓它更容易擴展(讓多個伺服器的實例可以存取同樣的緩存資料)。
+
+## 結論
+
+本章已介紹這些API在使用上必備的基礎概念：http.request、https.request與解析JSON。
